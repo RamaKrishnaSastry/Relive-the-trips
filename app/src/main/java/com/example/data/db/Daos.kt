@@ -129,6 +129,9 @@ interface MediaLinkDao {
     @Query("SELECT * FROM media_links WHERE visitId = :visitId ORDER BY dateTaken DESC, createdAt DESC")
     fun getMediaLinksForVisit(visitId: String): Flow<List<MediaLinkEntity>>
 
+    @Query("SELECT * FROM media_links ORDER BY dateTaken DESC")
+    fun getAllMediaLinks(): Flow<List<MediaLinkEntity>>
+
     @Query("DELETE FROM media_links WHERE id = :id")
     suspend fun deleteMediaLinkById(id: String)
 

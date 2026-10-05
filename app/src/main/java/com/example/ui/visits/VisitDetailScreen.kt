@@ -137,6 +137,7 @@ fun VisitDetailScreen(
         contract = ActivityResultContracts.PickMultipleVisualMedia()
     ) { uris ->
         if (uris.isNotEmpty()) {
+            var photosWithGpsCount = 0
             uris.forEach { uri ->
                 try {
                     context.contentResolver.takePersistableUriPermission(
@@ -146,14 +147,56 @@ fun VisitDetailScreen(
                 } catch (e: Exception) {
                     // Handled gracefully for transient URIs
                 }
+
+                var detectedDate: Long? = null
+                var hasGps = false
+                var detectedLat: Double? = null
+                var detectedLng: Double? = null
+
+                try {
+                    context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                        val exifInterface = android.media.ExifInterface(inputStream)
+
+                        // 1. Extract Date Taken
+                        val dateStr = exifInterface.getAttribute(android.media.ExifInterface.TAG_DATETIME_ORIGINAL)
+                            ?: exifInterface.getAttribute(android.media.ExifInterface.TAG_DATETIME)
+                        if (dateStr != null) {
+                            try {
+                                val sdf = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.getDefault())
+                                detectedDate = sdf.parse(dateStr)?.time
+                            } catch (e: Exception) {
+                                // Fallback format
+                            }
+                        }
+
+                        // 2. Extract GPS Coordinates
+                        val latLong = FloatArray(2)
+                        if (exifInterface.getLatLong(latLong)) {
+                            hasGps = true
+                            detectedLat = latLong[0].toDouble()
+                            detectedLng = latLong[1].toDouble()
+                            photosWithGpsCount++
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.d("VisitDetail", "Exif read notice: ${e.message}")
+                }
+
                 viewModel.linkGalleryMedia(
                     visitId = visitId,
                     uriString = uri.toString(),
-                    dateTaken = visit?.startDate,
-                    hasGps = false
+                    dateTaken = detectedDate ?: visit?.startDate ?: System.currentTimeMillis(),
+                    hasGps = hasGps,
+                    latitude = detectedLat,
+                    longitude = detectedLng
                 )
             }
-            Toast.makeText(context, "${uris.size} photos linked to visit", Toast.LENGTH_SHORT).show()
+            val msg = if (photosWithGpsCount > 0) {
+                "${uris.size} photos linked ($photosWithGpsCount with GPS metadata)"
+            } else {
+                "${uris.size} photos linked to visit"
+            }
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -183,6 +226,14 @@ fun VisitDetailScreen(
     // Google Photos Link Dialog
     if (showGooglePhotosLinkDialog) {
         var googlePhotosUrl by remember { mutableStateOf("") }
+        val isValidUrl = remember(googlePhotosUrl) {
+            val trimmed = googlePhotosUrl.trim()
+            trimmed.startsWith("https://photos.app.goo.gl/") ||
+            trimmed.startsWith("https://photos.google.com/") ||
+            trimmed.startsWith("http://photos.app.goo.gl/") ||
+            (trimmed.startsWith("http") && trimmed.contains("photos"))
+        }
+
         AlertDialog(
             onDismissRequest = { showGooglePhotosLinkDialog = false },
             title = {
@@ -202,7 +253,14 @@ fun VisitDetailScreen(
                     OutlinedTextField(
                         value = googlePhotosUrl,
                         onValueChange = { googlePhotosUrl = it },
+                        label = { Text("Google Photos Link") },
                         placeholder = { Text("https://photos.app.goo.gl/...", fontSize = 13.sp) },
+                        isError = googlePhotosUrl.isNotBlank() && !isValidUrl,
+                        supportingText = {
+                            if (googlePhotosUrl.isNotBlank() && !isValidUrl) {
+                                Text("Please enter a valid Google Photos sharing link (e.g. https://photos.app.goo.gl/...)")
+                            }
+                        },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -216,12 +274,13 @@ fun VisitDetailScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        if (googlePhotosUrl.isNotBlank()) {
+                        if (isValidUrl) {
                             viewModel.linkGooglePhotosMedia(visitId, googlePhotosUrl.trim(), visit?.startDate)
                             Toast.makeText(context, "Google Photos reference linked!", Toast.LENGTH_SHORT).show()
                             showGooglePhotosLinkDialog = false
                         }
                     },
+                    enabled = isValidUrl,
                     colors = ButtonDefaults.buttonColors(containerColor = TerracottaPrimary)
                 ) {
                     Text("Link")

@@ -36,7 +36,7 @@ class AuthRepository(private val context: Context) {
                 email = prefs.getString(KEY_USER_EMAIL, "") ?: "",
                 displayName = prefs.getString(KEY_USER_NAME, "Temple Pilgrim") ?: "Temple Pilgrim",
                 photoUrl = prefs.getString(KEY_USER_PHOTO, null),
-                idToken = prefs.getString(KEY_ID_TOKEN, null),
+                idToken = null, // Do not store or load sensitive token from plain preferences
                 signedInAtMillis = prefs.getLong(KEY_SIGNED_IN_AT, System.currentTimeMillis()),
                 isDemoSession = prefs.getBoolean(KEY_IS_DEMO, false)
             )
@@ -46,21 +46,21 @@ class AuthRepository(private val context: Context) {
         }
     }
 
-    suspend fun signInWithGoogle(activityContext: Context, serverClientId: String?): Result<UserProfile> {
+    suspend fun signInWithGoogle(activityContext: Context, serverClientId: String? = null): Result<UserProfile> {
         return try {
             val credentialManager = CredentialManager.create(activityContext)
             
-            // Build raw nonce
+            // Build raw nonce for replay protection
             val rawNonce = UUID.randomUUID().toString()
             val md = MessageDigest.getInstance("SHA-256")
             val digest = md.digest(rawNonce.toByteArray())
             val hashedNonce = digest.fold("") { str, it -> str + "%02x".format(it) }
 
-            // Use configured server client ID or standard OAuth web client ID
+            // Use verified OAuth Web client ID from Google Cloud / Firebase project
             val effectiveClientId = if (!serverClientId.isNullOrBlank()) {
                 serverClientId
             } else {
-                "774619379658-placeholder.apps.googleusercontent.com"
+                DEFAULT_OAUTH_CLIENT_ID
             }
 
             val googleIdOption = GetGoogleIdOption.Builder()
@@ -87,7 +87,7 @@ class AuthRepository(private val context: Context) {
                     email = googleIdTokenCredential.id,
                     displayName = googleIdTokenCredential.displayName ?: googleIdTokenCredential.id.substringBefore("@"),
                     photoUrl = googleIdTokenCredential.profilePictureUri?.toString(),
-                    idToken = googleIdTokenCredential.idToken,
+                    idToken = null, // Transient token, not persisted in plain storage
                     signedInAtMillis = System.currentTimeMillis(),
                     isDemoSession = false
                 )
@@ -110,7 +110,10 @@ class AuthRepository(private val context: Context) {
         }
     }
 
-    fun signInAsDemo(email: String = "ramakrishna.cds.nitk@gmail.com", displayName: String = "Ramakrishna"): UserProfile {
+    fun signInAsDemo(
+        email: String = "explorer.pilgrim@templemap.app",
+        displayName: String = "Explorer Pilgrim"
+    ): UserProfile {
         val user = UserProfile(
             id = "demo_${UUID.randomUUID().toString().take(8)}",
             email = email,
@@ -137,7 +140,6 @@ class AuthRepository(private val context: Context) {
             .putString(KEY_USER_EMAIL, user.email)
             .putString(KEY_USER_NAME, user.displayName)
             .putString(KEY_USER_PHOTO, user.photoUrl)
-            .putString(KEY_ID_TOKEN, user.idToken)
             .putLong(KEY_SIGNED_IN_AT, user.signedInAtMillis)
             .putBoolean(KEY_IS_DEMO, user.isDemoSession)
             .apply()
@@ -145,12 +147,13 @@ class AuthRepository(private val context: Context) {
 
     companion object {
         private const val TAG = "AuthRepository"
+        const val DEFAULT_OAUTH_CLIENT_ID = "445159597263-up7cnu2io7jpj27jhgvotl2pg8emkrjg.apps.googleusercontent.com"
+        
         private const val KEY_IS_LOGGED_IN = "is_logged_in"
         private const val KEY_USER_ID = "user_id"
         private const val KEY_USER_EMAIL = "user_email"
         private const val KEY_USER_NAME = "user_name"
         private const val KEY_USER_PHOTO = "user_photo"
-        private const val KEY_ID_TOKEN = "id_token"
         private const val KEY_SIGNED_IN_AT = "signed_in_at"
         private const val KEY_IS_DEMO = "is_demo"
     }

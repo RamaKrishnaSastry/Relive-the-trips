@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.data.model.CategoryEntity
+import com.example.data.model.MediaLinkEntity
+import com.example.data.model.MediaLinkType
 import com.example.data.model.PlaceEntity
 import com.example.data.model.TripEntity
 import com.example.data.model.VisitEntity
@@ -86,6 +88,9 @@ class TempleViewModel(
 
     val wishlistCount: StateFlow<Int> = repository.wishlistCount
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val allMediaLinks: StateFlow<List<MediaLinkEntity>> = repository.allMediaLinks
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val mediaCount: StateFlow<Int> = repository.mediaCount
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
@@ -198,14 +203,23 @@ class TempleViewModel(
 
     fun getMediaLinksForVisit(visitId: String) = repository.getMediaLinksForVisit(visitId)
 
-    fun linkGalleryMedia(visitId: String, uriString: String, dateTaken: Long? = null, hasGps: Boolean = false) {
+    fun linkGalleryMedia(
+        visitId: String,
+        uriString: String,
+        dateTaken: Long? = null,
+        hasGps: Boolean = false,
+        latitude: Double? = null,
+        longitude: Double? = null
+    ) {
         viewModelScope.launch {
             val mediaLink = com.example.data.model.MediaLinkEntity(
                 visitId = visitId,
                 type = com.example.data.model.MediaLinkType.GALLERY,
                 externalId = uriString,
                 dateTaken = dateTaken ?: System.currentTimeMillis(),
-                hasGps = hasGps
+                hasGps = hasGps,
+                latitude = latitude,
+                longitude = longitude
             )
             repository.addMediaLink(mediaLink)
         }
@@ -319,6 +333,21 @@ class TempleViewModel(
         }
         root.put("trips", tripsArray)
 
+        val mediaArray = JSONArray()
+        allMediaLinks.value.forEach { m ->
+            val obj = JSONObject()
+            obj.put("id", m.id)
+            obj.put("visitId", m.visitId)
+            obj.put("type", m.type.name)
+            obj.put("externalId", m.externalId)
+            obj.put("dateTaken", m.dateTaken)
+            obj.put("hasGps", m.hasGps)
+            if (m.latitude != null) obj.put("latitude", m.latitude)
+            if (m.longitude != null) obj.put("longitude", m.longitude)
+            mediaArray.put(obj)
+        }
+        root.put("mediaLinks", mediaArray)
+
         return root.toString(2)
     }
 
@@ -401,6 +430,33 @@ class TempleViewModel(
                         count++
                     }
                 }
+
+                val mediaArray = root.optJSONArray("mediaLinks") ?: root.optJSONArray("media_links")
+                if (mediaArray != null) {
+                    val linksToInsert = mutableListOf<com.example.data.model.MediaLinkEntity>()
+                    for (i in 0 until mediaArray.length()) {
+                        val obj = mediaArray.getJSONObject(i)
+                        val media = com.example.data.model.MediaLinkEntity(
+                            id = obj.optString("id", UUID.randomUUID().toString()),
+                            visitId = obj.getString("visitId"),
+                            type = try {
+                                com.example.data.model.MediaLinkType.valueOf(obj.optString("type", "GALLERY"))
+                            } catch (e: Exception) {
+                                com.example.data.model.MediaLinkType.GALLERY
+                            },
+                            externalId = obj.getString("externalId"),
+                            dateTaken = obj.optLong("dateTaken", System.currentTimeMillis()),
+                            hasGps = obj.optBoolean("hasGps", false),
+                            latitude = if (obj.has("latitude")) obj.getDouble("latitude") else null,
+                            longitude = if (obj.has("longitude")) obj.getDouble("longitude") else null
+                        )
+                        linksToInsert.add(media)
+                    }
+                    if (linksToInsert.isNotEmpty()) {
+                        repository.insertMediaLinks(linksToInsert)
+                    }
+                }
+
                 onResult(Result.success(count))
             } catch (e: Exception) {
                 onResult(Result.failure(e))

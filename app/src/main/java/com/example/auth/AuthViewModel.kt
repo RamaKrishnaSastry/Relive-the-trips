@@ -39,7 +39,7 @@ class AuthViewModel(private val repository: AuthRepository) : ViewModel() {
         }
     }
 
-    fun signInAsDemo(email: String = "ramakrishna.cds.nitk@gmail.com", displayName: String = "Ramakrishna") {
+    fun signInAsDemo(email: String = "explorer.pilgrim@templemap.app", displayName: String = "Explorer Pilgrim") {
         _isSigningIn.value = true
         _errorMessage.value = null
         repository.signInAsDemo(email, displayName)

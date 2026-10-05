@@ -30,6 +30,7 @@ class TempleRepository(
     val allVisits: Flow<List<VisitEntity>> = visitDao.getAllVisits()
     val visitedVisits: Flow<List<VisitEntity>> = visitDao.getVisitsByState(VisitState.VISITED)
     val wishlistVisits: Flow<List<VisitEntity>> = visitDao.getVisitsByState(VisitState.WISHLIST)
+    val allMediaLinks: Flow<List<MediaLinkEntity>> = mediaLinkDao.getAllMediaLinks()
 
     val placesCount: Flow<Int> = placeDao.getPlacesCount()
     val visitedCount: Flow<Int> = visitDao.getVisitedCount()
@@ -97,6 +98,12 @@ class TempleRepository(
 
     suspend fun addMediaLink(link: MediaLinkEntity) {
         mediaLinkDao.insertMediaLink(link)
+    }
+
+    suspend fun insertMediaLinks(links: List<MediaLinkEntity>) {
+        if (links.isNotEmpty()) {
+            mediaLinkDao.insertMediaLinks(links)
+        }
     }
 
     suspend fun deleteMediaLink(linkId: String) {

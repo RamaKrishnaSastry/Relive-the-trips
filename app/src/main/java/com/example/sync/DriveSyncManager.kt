@@ -21,7 +21,6 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.UUID
 
 sealed interface SyncState {
     data object Idle : SyncState
@@ -45,14 +44,14 @@ class DriveSyncManager(
 
     fun getLastSyncTimeString(): String {
         val lastSync = prefs.getLong(KEY_LAST_SYNC, 0L)
-        if (lastSync == 0L) return "Not synced yet"
+        if (lastSync == 0L) return "Not backed up yet"
         val sdf = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
-        return "Synced ${sdf.format(Date(lastSync))}"
+        return "Backup saved ${sdf.format(Date(lastSync))}"
     }
 
     suspend fun syncOnceOnAppLaunch(userEmail: String?): Boolean {
         if (hasSyncedThisSession) {
-            Log.d(TAG, "Already synced during this app session, skipping duplicate sync.")
+            Log.d(TAG, "Already backed up during this app session, skipping duplicate run.")
             return true
         }
         return performSync(userEmail = userEmail, isAppLaunch = true)
@@ -61,25 +60,27 @@ class DriveSyncManager(
     suspend fun performSync(userEmail: String?, isAppLaunch: Boolean = false): Boolean = withContext(Dispatchers.IO) {
         _syncState.value = SyncState.Syncing
         try {
-            // 1. Gather all local Room records
+            // 1. Gather all local Room records including media links and trips
             val places = repository.allPlaces.first()
             val visits = repository.allVisits.first()
             val categories = repository.allCategories.first()
             val trips = repository.allTrips.first()
+            val mediaLinks = repository.allMediaLinks.first()
 
             val jsonPayload = serializeBackup(
                 userEmail = userEmail ?: "unknown",
                 places = places,
                 visits = visits,
                 categories = categories,
-                trips = trips
+                trips = trips,
+                mediaLinks = mediaLinks
             )
 
             // 2. Save snapshot locally to private app storage for cache/offline recovery
-            val syncFile = File(context.filesDir, "drive_sync_cache.json")
+            val syncFile = File(context.filesDir, "travel_diary_autosave.json")
             syncFile.writeText(jsonPayload)
 
-            // 3. Mark last sync timestamp
+            // 3. Mark last backup timestamp
             val now = System.currentTimeMillis()
             prefs.edit()
                 .putLong(KEY_LAST_SYNC, now)
@@ -88,15 +89,15 @@ class DriveSyncManager(
 
             hasSyncedThisSession = true
             val successMsg = if (isAppLaunch) {
-                "Synced with Drive on launch (${visits.size} visits, ${places.size} sites)"
+                "Auto-Backup synced on launch (${visits.size} visits, ${mediaLinks.size} photos)"
             } else {
-                "Synced with Google Drive (${visits.size} visits)"
+                "Auto-Backup saved (${visits.size} visits, ${mediaLinks.size} photos)"
             }
             _syncState.value = SyncState.Success(successMsg, now)
-            Log.i(TAG, "Google Drive sync succeeded: $successMsg")
+            Log.i(TAG, "Backup sync succeeded: $successMsg")
             true
         } catch (e: Exception) {
-            Log.e(TAG, "Drive sync error", e)
+            Log.e(TAG, "Backup sync error", e)
             _syncState.value = SyncState.Offline("Working offline with local Room DB")
             false
         }
@@ -107,7 +108,8 @@ class DriveSyncManager(
         places: List<PlaceEntity>,
         visits: List<VisitEntity>,
         categories: List<CategoryEntity>,
-        trips: List<TripEntity>
+        trips: List<TripEntity>,
+        mediaLinks: List<MediaLinkEntity>
     ): String {
         val root = JSONObject()
         root.put("version", 1)
@@ -136,6 +138,7 @@ class DriveSyncManager(
             v.endDate?.let { obj.put("endDate", it) }
             obj.put("notes", v.notes ?: "")
             obj.put("categoryIds", JSONArray(v.categoryIds))
+            if (v.tripId != null) obj.put("tripId", v.tripId)
             obj.put("state", v.state.name)
             obj.put("deity", v.deity ?: "")
             obj.put("architecture", v.architecture ?: "")
@@ -167,6 +170,21 @@ class DriveSyncManager(
             tripsArr.put(obj)
         }
         root.put("trips", tripsArr)
+
+        val mediaArr = JSONArray()
+        mediaLinks.forEach { m ->
+            val obj = JSONObject()
+            obj.put("id", m.id)
+            obj.put("visitId", m.visitId)
+            obj.put("type", m.type.name)
+            obj.put("externalId", m.externalId)
+            obj.put("dateTaken", m.dateTaken)
+            obj.put("hasGps", m.hasGps)
+            if (m.latitude != null) obj.put("latitude", m.latitude)
+            if (m.longitude != null) obj.put("longitude", m.longitude)
+            mediaArr.put(obj)
+        }
+        root.put("mediaLinks", mediaArr)
 
         return root.toString(2)
     }

@@ -52,6 +52,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -69,8 +70,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.data.model.CategoryEntity
+import com.example.data.places.GeocodedSearchResult
+import com.example.data.places.NominatimGeocoder
 import com.example.data.places.TempleLookupPlace
 import com.example.data.places.TemplePlacesCatalog
+import kotlinx.coroutines.delay
 import com.example.ui.theme.AntiqueGold
 import com.example.ui.theme.MarigoldGold
 import com.example.ui.theme.SageForest
@@ -138,6 +142,23 @@ fun CreateVisitSheet(
 
     val searchSuggestions = remember(searchQuery) {
         if (searchQuery.isNotBlank()) TemplePlacesCatalog.searchTemples(searchQuery) else emptyList()
+    }
+
+    var onlineResults by remember { mutableStateOf<List<GeocodedSearchResult>>(emptyList()) }
+    var isSearchingOnline by remember { mutableStateOf(false) }
+
+    LaunchedEffect(searchQuery) {
+        val q = searchQuery.trim()
+        if (q.length >= 2) {
+            delay(350)
+            isSearchingOnline = true
+            val results = NominatimGeocoder.searchPlaces(q)
+            onlineResults = results
+            isSearchingOnline = false
+        } else {
+            onlineResults = emptyList()
+            isSearchingOnline = false
+        }
     }
 
     val dateFormatter = remember { SimpleDateFormat("MMMM d, yyyy", Locale.getDefault()) }
@@ -250,7 +271,8 @@ fun CreateVisitSheet(
                 )
 
                 // Search Suggestions Dropdown / Cards
-                AnimatedVisibility(visible = showSearchResults && searchSuggestions.isNotEmpty()) {
+                val hasAnyResults = searchSuggestions.isNotEmpty() || onlineResults.isNotEmpty()
+                AnimatedVisibility(visible = showSearchResults && (hasAnyResults || isSearchingOnline)) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -261,7 +283,27 @@ fun CreateVisitSheet(
                             .padding(8.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        searchSuggestions.take(4).forEach { temple ->
+                        if (isSearchingOnline && !hasAnyResults) {
+                            Row(
+                                modifier = Modifier.padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                androidx.compose.material3.CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = TerracottaPrimary
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Searching places & temples worldwide...",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        // 1. Curated Catalog Temples
+                        searchSuggestions.take(3).forEach { temple ->
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
                                 color = MaterialTheme.colorScheme.surface,
@@ -308,9 +350,62 @@ fun CreateVisitSheet(
                                         color = TerracottaLight
                                     ) {
                                         Text(
-                                            text = "Auto-fill",
+                                            text = "Catalog",
                                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                                             color = TerracottaDark,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // 2. Online Geocoded Places (Nominatim Open Search)
+                        onlineResults.take(3).forEach { geocoded ->
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surface,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        placeName = geocoded.shortTitle.ifBlank { geocoded.displayName.take(40) }
+                                        latStr = geocoded.latitude.toString()
+                                        lngStr = geocoded.longitude.toString()
+                                        searchQuery = ""
+                                        showSearchResults = false
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.LocationOn,
+                                        contentDescription = null,
+                                        tint = MarigoldGold,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = geocoded.shortTitle,
+                                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                                        )
+                                        Text(
+                                            text = geocoded.displayName,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1
+                                        )
+                                    }
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = AntiqueGold.copy(alpha = 0.2f)
+                                    ) {
+                                        Text(
+                                            text = "Map Geocode",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                            color = MarigoldGold,
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                         )
                                     }
