@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">Temple Map</string>
+    <string name="app_full_title">Travel Temple Map</string>
+    <string name="app_tagline">Sacred Journeys &amp; Photo Memories</string>
+    <string name="sign_in_with_google">Sign in with Google</string>
+    <string name="sign_out">Sign Out</string>
+    <string name="continue_as_demo">Quick Test / Demo Account</string>
+    <string name="auth_welcome_title">Preserve Your Sacred Path</string>
+    <string name="auth_welcome_desc">Record holy temples and journeys on a 3D globe. Link memories from your gallery and Google Photos with absolute privacy.</string>
+</resources>

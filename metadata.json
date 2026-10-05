@@ -1,0 +1,6 @@
+{
+  "name": "Travel Temple Map",
+  "description": "Record and explore visited sacred temples on an interactive 3D globe, linking memories and photos with zero copy.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
