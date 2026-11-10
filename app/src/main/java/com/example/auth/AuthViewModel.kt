@@ -25,18 +25,15 @@ class AuthViewModel(private val repository: AuthRepository) : ViewModel() {
             _errorMessage.value = null
             val result = repository.signInWithGoogle(context, serverClientId)
             result.onFailure { exception ->
-                val errorText = when {
-                    exception.message?.contains("cancel", ignoreCase = true) == true ->
-                        "Sign-in was cancelled"
-                    exception.message?.contains("16:", ignoreCase = true) == true ||
-                    exception.message?.contains("NoCredentialException", ignoreCase = true) == true ->
-                        "No Google Account on this device/emulator. Use Quick Test Sign-in to test the app."
-                    else -> "Sign-in error: ${exception.localizedMessage ?: "Unknown error"}. Use Quick Test Sign-in to proceed."
-                }
+                val errorText = SigningCertificateValidator.diagnoseSignInException(context, exception)
                 _errorMessage.value = errorText
             }
             _isSigningIn.value = false
         }
+    }
+
+    fun getSigningInfo(context: Context): SigningCertificateValidator.SigningValidationInfo {
+        return SigningCertificateValidator.getSigningInfo(context)
     }
 
     fun signInAsDemo(email: String = "explorer.pilgrim@templemap.app", displayName: String = "Explorer Pilgrim") {

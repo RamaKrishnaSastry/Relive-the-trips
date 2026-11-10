@@ -56,12 +56,18 @@ class AuthRepository(private val context: Context) {
             val digest = md.digest(rawNonce.toByteArray())
             val hashedNonce = digest.fold("") { str, it -> str + "%02x".format(it) }
 
-            // Use verified OAuth Web client ID from Google Cloud / Firebase project
-            val effectiveClientId = if (!serverClientId.isNullOrBlank()) {
-                serverClientId
-            } else {
+        // Validate signing certificate and load client ID from firebase-applet-config.json
+        val signingInfo = SigningCertificateValidator.getSigningInfo(activityContext)
+        Log.i(TAG, "Auth signing validation: ${signingInfo.diagnosticSummary} (Current SHA-1: ${signingInfo.currentSha1})")
+
+        val effectiveClientId = if (!serverClientId.isNullOrBlank()) {
+            serverClientId
+        } else {
+            FirebaseConfigLoader.getWebClientId(activityContext).ifBlank {
                 DEFAULT_OAUTH_CLIENT_ID
             }
+        }
+        Log.i(TAG, "Using OAuth Client ID: $effectiveClientId")
 
             val googleIdOption = GetGoogleIdOption.Builder()
                 .setFilterByAuthorizedAccounts(false)

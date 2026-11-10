@@ -20,6 +20,13 @@ android {
     versionName = "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+    val configFile = rootProject.file("firebase-applet-config.json")
+    val webClientId = if (configFile.exists()) {
+      Regex("\"oAuthClientId\"\\s*:\\s*\"([^\"]+)\"").find(configFile.readText())?.groupValues?.get(1) ?: ""
+    } else ""
+    buildConfigField("String", "OAUTH_WEB_CLIENT_ID", "\"$webClientId\"")
+    buildConfigField("String", "EXPECTED_DEBUG_SHA1", "\"83:D7:48:9A:3C:E4:0B:B5:33:AA:0F:EB:81:5C:50:38:AD:CC:7E:52\"")
   }
 
   signingConfigs {
