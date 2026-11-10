@@ -31,9 +31,10 @@ class ExampleRobolectricTest {
     assertTrue(repo.authState.value is AuthState.Unauthenticated)
 
     // Sign in as demo user
-    val user = repo.signInAsDemo(email = "pilgrim@templemap.app", displayName = "Temple Pilgrim")
-    assertEquals("pilgrim@templemap.app", user.email)
-    assertEquals("Temple Pilgrim", user.displayName)
+    val user = repo.signInAsDemo(displayName = "Temple Pilgrim")
+    org.junit.Assert.assertNotNull(user)
+    assertEquals("demo.pilgrim@templemap.app", user?.email)
+    assertEquals("Temple Pilgrim", user?.displayName)
     assertTrue(repo.authState.value is AuthState.Authenticated)
 
     // Create a new repo instance with same context (simulating app relaunch)
@@ -41,7 +42,7 @@ class ExampleRobolectricTest {
     val restoredState = restoredRepo.authState.value
     assertTrue(restoredState is AuthState.Authenticated)
     val restoredUser = (restoredState as AuthState.Authenticated).user
-    assertEquals("pilgrim@templemap.app", restoredUser.email)
+    assertEquals("demo.pilgrim@templemap.app", restoredUser.email)
     assertEquals("Temple Pilgrim", restoredUser.displayName)
 
     // Sign out

@@ -1,6 +1,5 @@
 package com.example.ui.theme
 
-import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -9,43 +8,45 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
 private val DarkColorScheme = darkColorScheme(
-    primary = MarigoldGold,
-    onPrimary = Color(0xFF431407),
-    primaryContainer = TerracottaDark,
-    onPrimaryContainer = TerracottaLight,
-    secondary = TerracottaPrimary,
+    primary = Accent,
+    onPrimary = Color.White,
+    primaryContainer = AccentDark,
+    onPrimaryContainer = AccentLight,
+    secondary = Accent,
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFF7C2D12),
-    onSecondaryContainer = Color(0xFFFFEDD5),
-    tertiary = SageForest,
+    secondaryContainer = AccentDark,
+    onSecondaryContainer = AccentLight,
+    tertiary = Accent,
     onTertiary = Color.White,
-    background = TempleNightCanvas,
-    onBackground = InkPrimaryDark,
-    surface = TempleNightCard,
-    onSurface = InkPrimaryDark,
-    surfaceVariant = TempleNightCardMuted,
-    onSurfaceVariant = InkSecondaryDark,
-    outline = TempleNightBorder
+    background = BackgroundDark,
+    onBackground = OnSurfaceDark,
+    surface = SurfaceDark,
+    onSurface = OnSurfaceDark,
+    surfaceVariant = SurfaceVariantDark,
+    onSurfaceVariant = OnSurfaceVariantDark,
+    outline = OutlineDark,
+    outlineVariant = OutlineDark.copy(alpha = 0.5f)
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = TerracottaPrimary,
+    primary = Accent,
     onPrimary = Color.White,
-    primaryContainer = TerracottaLight,
-    onPrimaryContainer = Color(0xFF7C2D12),
-    secondary = MarigoldGold,
+    primaryContainer = AccentLight,
+    onPrimaryContainer = AccentDark,
+    secondary = Accent,
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFFEF3C7),
-    onSecondaryContainer = AntiqueGold,
-    tertiary = SageForest,
+    secondaryContainer = AccentLight,
+    onSecondaryContainer = AccentDark,
+    tertiary = Accent,
     onTertiary = Color.White,
-    background = ParchmentCanvas,
-    onBackground = InkPrimaryLight,
-    surface = ParchmentCard,
-    onSurface = InkPrimaryLight,
-    surfaceVariant = ParchmentCardMuted,
-    onSurfaceVariant = InkSecondaryLight,
-    outline = ParchmentBorder
+    background = BackgroundLight,
+    onBackground = OnSurfaceLight,
+    surface = SurfaceLight,
+    onSurface = OnSurfaceLight,
+    surfaceVariant = SurfaceVariantLight,
+    onSurfaceVariant = OnSurfaceVariantLight,
+    outline = OutlineLight,
+    outlineVariant = OutlineLight.copy(alpha = 0.5f)
 )
 
 @Composable

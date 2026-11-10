@@ -2,17 +2,20 @@ package com.example.auth
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Base64
 import android.util.Log
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialException
-import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.example.BuildConfig
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONObject
 import java.security.MessageDigest
 import java.util.UUID
 
@@ -36,7 +39,7 @@ class AuthRepository(private val context: Context) {
                 email = prefs.getString(KEY_USER_EMAIL, "") ?: "",
                 displayName = prefs.getString(KEY_USER_NAME, "Temple Pilgrim") ?: "Temple Pilgrim",
                 photoUrl = prefs.getString(KEY_USER_PHOTO, null),
-                idToken = null, // Do not store or load sensitive token from plain preferences
+                idToken = null,
                 signedInAtMillis = prefs.getLong(KEY_SIGNED_IN_AT, System.currentTimeMillis()),
                 isDemoSession = prefs.getBoolean(KEY_IS_DEMO, false)
             )
@@ -49,35 +52,27 @@ class AuthRepository(private val context: Context) {
     suspend fun signInWithGoogle(activityContext: Context, serverClientId: String? = null): Result<UserProfile> {
         return try {
             val credentialManager = CredentialManager.create(activityContext)
-            
-            // Build raw nonce for replay protection
+
+            // Raw nonce and SHA-256 hash for replay protection
             val rawNonce = UUID.randomUUID().toString()
             val md = MessageDigest.getInstance("SHA-256")
-            val digest = md.digest(rawNonce.toByteArray())
+            val digest = md.digest(rawNonce.toByteArray(Charsets.UTF_8))
             val hashedNonce = digest.fold("") { str, it -> str + "%02x".format(it) }
 
-        // Validate signing certificate and load client ID from firebase-applet-config.json
-        val signingInfo = SigningCertificateValidator.getSigningInfo(activityContext)
-        Log.i(TAG, "Auth signing validation: ${signingInfo.diagnosticSummary} (Current SHA-1: ${signingInfo.currentSha1})")
-
-        val effectiveClientId = if (!serverClientId.isNullOrBlank()) {
-            serverClientId
-        } else {
-            FirebaseConfigLoader.getWebClientId(activityContext).ifBlank {
-                DEFAULT_OAUTH_CLIENT_ID
+            val effectiveClientId = if (!serverClientId.isNullOrBlank()) {
+                serverClientId
+            } else {
+                FirebaseConfigLoader.getWebClientId(activityContext).ifBlank {
+                    DEFAULT_OAUTH_CLIENT_ID
+                }
             }
-        }
-        Log.i(TAG, "Using OAuth Client ID: $effectiveClientId")
 
-            val googleIdOption = GetGoogleIdOption.Builder()
-                .setFilterByAuthorizedAccounts(false)
-                .setServerClientId(effectiveClientId)
+            val signInOption = GetSignInWithGoogleOption.Builder(effectiveClientId)
                 .setNonce(hashedNonce)
-                .setAutoSelectEnabled(false)
                 .build()
 
             val request = GetCredentialRequest.Builder()
-                .addCredentialOption(googleIdOption)
+                .addCredentialOption(signInOption)
                 .build()
 
             val result = credentialManager.getCredential(
@@ -88,12 +83,62 @@ class AuthRepository(private val context: Context) {
             val credential = result.credential
             if (credential is CustomCredential && credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
                 val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
+                val idToken = googleIdTokenCredential.idToken
+
+                // Parse & validate JWT payload
+                val parts = idToken.split(".")
+                if (parts.size < 2) {
+                    throw SecurityException("Malformed Google ID token payload structure.")
+                }
+
+                val payloadJson = String(
+                    Base64.decode(
+                        parts[1],
+                        Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
+                    ),
+                    Charsets.UTF_8
+                )
+                val payload = JSONObject(payloadJson)
+
+                // 1. Check audience equals web client ID
+                val aud = payload.optString("aud", "")
+                if (aud != effectiveClientId) {
+                    Log.e(TAG, "Audience check failed. Expected: $effectiveClientId, found: $aud")
+                    throw SecurityException("Sign-in verification failed: Token audience does not match configured web client ID.")
+                }
+
+                // 2. Check expiry is in the future
+                val expSeconds = payload.optLong("exp", 0L)
+                val currentSeconds = System.currentTimeMillis() / 1000
+                if (expSeconds <= currentSeconds) {
+                    Log.e(TAG, "Token expiry check failed. exp: $expSeconds, now: $currentSeconds")
+                    throw SecurityException("Sign-in verification failed: Google ID token has expired.")
+                }
+
+                // 3. Check nonce hash matches
+                val tokenNonce = payload.optString("nonce", "")
+                if (tokenNonce != hashedNonce) {
+                    Log.e(TAG, "Nonce check failed. Expected: $hashedNonce, found: $tokenNonce")
+                    throw SecurityException("Sign-in verification failed: Cryptographic nonce mismatch.")
+                }
+
+                // 4. Stable sub as user id, never email
+                val sub = payload.optString("sub", "")
+                if (sub.isBlank()) {
+                    Log.e(TAG, "Missing subject claim 'sub' in ID token payload.")
+                    throw SecurityException("Sign-in verification failed: Missing stable user identifier (sub).")
+                }
+
+                val email = payload.optString("email", googleIdTokenCredential.id)
+                val displayName = payload.optString("name", googleIdTokenCredential.displayName ?: email.substringBefore("@"))
+                val photoUrl = payload.optString("picture", googleIdTokenCredential.profilePictureUri?.toString()).ifBlank { null }
+
                 val user = UserProfile(
-                    id = googleIdTokenCredential.id,
-                    email = googleIdTokenCredential.id,
-                    displayName = googleIdTokenCredential.displayName ?: googleIdTokenCredential.id.substringBefore("@"),
-                    photoUrl = googleIdTokenCredential.profilePictureUri?.toString(),
-                    idToken = null, // Transient token, not persisted in plain storage
+                    id = sub,
+                    email = email,
+                    displayName = displayName,
+                    photoUrl = photoUrl,
+                    idToken = null,
                     signedInAtMillis = System.currentTimeMillis(),
                     isDemoSession = false
                 )
@@ -101,30 +146,34 @@ class AuthRepository(private val context: Context) {
                 _authState.value = AuthState.Authenticated(user)
                 Result.success(user)
             } else {
-                val msg = "Unexpected credential type returned: ${credential::class.java.simpleName}"
+                val msg = "Unexpected credential returned: ${credential::class.java.simpleName}"
+                Log.e(TAG, msg)
                 Result.failure(IllegalStateException(msg))
             }
         } catch (e: GetCredentialCancellationException) {
-            Log.i(TAG, "Google Sign-in was cancelled by user: ${e.message}")
+            Log.e(TAG, "Google Sign-in was cancelled by user: ${e.message}", e)
             Result.failure(e)
         } catch (e: GetCredentialException) {
             Log.e(TAG, "Google CredentialManager error: ${e.message}", e)
             Result.failure(e)
         } catch (e: Exception) {
-            Log.e(TAG, "General sign-in error: ${e.message}", e)
+            Log.e(TAG, "Google Sign-in exception: ${e.message}", e)
             Result.failure(e)
         }
     }
 
     fun signInAsDemo(
-        email: String = "explorer.pilgrim@templemap.app",
         displayName: String = "Explorer Pilgrim"
-    ): UserProfile {
+    ): UserProfile? {
+        if (!BuildConfig.DEBUG) {
+            Log.w(TAG, "Demo sign-in rejected: only permitted in debug builds.")
+            return null
+        }
         val user = UserProfile(
             id = "demo_${UUID.randomUUID().toString().take(8)}",
-            email = email,
+            email = "demo.pilgrim@templemap.app",
             displayName = displayName,
-            photoUrl = "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150",
+            photoUrl = null,
             idToken = null,
             signedInAtMillis = System.currentTimeMillis(),
             isDemoSession = true
@@ -154,7 +203,7 @@ class AuthRepository(private val context: Context) {
     companion object {
         private const val TAG = "AuthRepository"
         const val DEFAULT_OAUTH_CLIENT_ID = "445159597263-up7cnu2io7jpj27jhgvotl2pg8emkrjg.apps.googleusercontent.com"
-        
+
         private const val KEY_IS_LOGGED_IN = "is_logged_in"
         private const val KEY_USER_ID = "user_id"
         private const val KEY_USER_EMAIL = "user_email"

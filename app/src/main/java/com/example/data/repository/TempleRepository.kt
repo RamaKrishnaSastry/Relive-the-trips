@@ -16,6 +16,7 @@ import com.example.data.model.VisitState
 import com.example.data.model.VisitWithDetails
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
+import kotlin.math.roundToLong
 
 class TempleRepository(
     private val placeDao: PlaceDao,
@@ -24,24 +25,63 @@ class TempleRepository(
     private val visitDao: VisitDao,
     private val mediaLinkDao: MediaLinkDao
 ) {
-    val allPlaces: Flow<List<PlaceEntity>> = placeDao.getAllPlaces()
     val allCategories: Flow<List<CategoryEntity>> = categoryDao.getAllCategories()
-    val allTrips: Flow<List<TripEntity>> = tripDao.getAllTrips()
-    val allVisits: Flow<List<VisitEntity>> = visitDao.getAllVisits()
-    val visitedVisits: Flow<List<VisitEntity>> = visitDao.getVisitsByState(VisitState.VISITED)
-    val wishlistVisits: Flow<List<VisitEntity>> = visitDao.getVisitsByState(VisitState.WISHLIST)
-    val allMediaLinks: Flow<List<MediaLinkEntity>> = mediaLinkDao.getAllMediaLinks()
 
-    val placesCount: Flow<Int> = placeDao.getPlacesCount()
-    val visitedCount: Flow<Int> = visitDao.getVisitedCount()
-    val wishlistCount: Flow<Int> = visitDao.getWishlistCount()
-    val mediaCount: Flow<Int> = mediaLinkDao.getMediaLinksCount()
+    fun getAllPlaces(ownerId: String): Flow<List<PlaceEntity>> = placeDao.getAllPlaces(ownerId)
+    fun getAllTrips(ownerId: String): Flow<List<TripEntity>> = tripDao.getAllTrips(ownerId)
+    fun getAllVisits(ownerId: String): Flow<List<VisitEntity>> = visitDao.getAllVisits(ownerId)
+    fun getVisitedVisits(ownerId: String): Flow<List<VisitEntity>> = visitDao.getVisitsByState(ownerId, VisitState.VISITED)
+    fun getWishlistVisits(ownerId: String): Flow<List<VisitEntity>> = visitDao.getVisitsByState(ownerId, VisitState.WISHLIST)
+    fun getAllMediaLinks(ownerId: String): Flow<List<MediaLinkEntity>> = mediaLinkDao.getAllMediaLinks(ownerId)
+
+    fun getPlacesCount(ownerId: String): Flow<Int> = placeDao.getPlacesCount(ownerId)
+    fun getVisitedCount(ownerId: String): Flow<Int> = visitDao.getVisitedCount(ownerId)
+    fun getWishlistCount(ownerId: String): Flow<Int> = visitDao.getWishlistCount(ownerId)
+    fun getMediaCount(ownerId: String): Flow<Int> = mediaLinkDao.getMediaLinksCount(ownerId)
 
     suspend fun ensureDefaultCategories() {
         val count = categoryDao.getCategoriesCount()
         if (count == 0) {
             categoryDao.insertCategories(TempleMapDatabase.DEFAULT_CATEGORIES)
         }
+    }
+
+    private fun roundCoord(value: Double): Double = (value * 10000.0).roundToLong() / 10000.0
+
+    /**
+     * Reuses an existing place with matching name and coordinates rounded to 4 decimals,
+     * preventing duplicate place entities per owner.
+     */
+    suspend fun getOrCreatePlace(
+        ownerId: String,
+        name: String,
+        latitude: Double,
+        longitude: Double,
+        source: String = "manual"
+    ): PlaceEntity {
+        val existingPlaces = placeDao.getAllPlacesForOwner(ownerId)
+        val roundedLat = roundCoord(latitude)
+        val roundedLng = roundCoord(longitude)
+
+        val matched = existingPlaces.firstOrNull { place ->
+            place.name.trim().equals(name.trim(), ignoreCase = true) &&
+                roundCoord(place.latitude) == roundedLat &&
+                roundCoord(place.longitude) == roundedLng
+        }
+        if (matched != null) {
+            return matched
+        }
+
+        val newPlace = PlaceEntity(
+            id = "place_${UUID.randomUUID().toString().take(8)}",
+            name = name.trim(),
+            latitude = latitude,
+            longitude = longitude,
+            source = source,
+            ownerId = ownerId
+        )
+        placeDao.insertPlace(newPlace)
+        return newPlace
     }
 
     suspend fun addPlace(place: PlaceEntity) {
@@ -60,13 +100,14 @@ class TempleRepository(
         return category
     }
 
-    suspend fun addTrip(name: String, startDate: Long, endDate: Long?, notes: String?): TripEntity {
+    suspend fun addTrip(ownerId: String, name: String, startDate: Long, endDate: Long?, notes: String?): TripEntity {
         val trip = TripEntity(
             id = "trip_${UUID.randomUUID().toString().take(8)}",
             name = name.trim(),
             startDate = startDate,
             endDate = endDate,
-            notes = notes
+            notes = notes,
+            ownerId = ownerId
         )
         tripDao.insertTrip(trip)
         return trip
@@ -80,20 +121,41 @@ class TempleRepository(
         visitDao.updateVisit(visit)
     }
 
+    /**
+     * Deletes a category and scrubs its reference from any existing visits' categoryIds.
+     */
     suspend fun deleteCategory(categoryId: String) {
         categoryDao.deleteCategoryById(categoryId)
+        val allVisits = visitDao.getAllVisitsAcrossOwners()
+        allVisits.forEach { visit ->
+            if (visit.categoryIds.contains(categoryId)) {
+                val updated = visit.copy(categoryIds = visit.categoryIds.filter { it != categoryId })
+                visitDao.updateVisit(updated)
+            }
+        }
     }
 
-    suspend fun clearAllUserData() {
-        mediaLinkDao.deleteAllMediaLinks()
-        visitDao.deleteAllVisits()
-        tripDao.deleteAllTrips()
-        placeDao.deleteAllPlaces()
-    }
-
+    /**
+     * Deletes a visit, cascading media link deletion, and cleans up orphaned places if no other
+     * visits reference the place.
+     */
     suspend fun deleteVisit(visitId: String) {
+        val visit = visitDao.getVisitById(visitId)
         mediaLinkDao.deleteMediaLinksForVisit(visitId)
         visitDao.deleteVisitById(visitId)
+        if (visit != null) {
+            val remainingVisits = placeDao.countVisitsForPlace(visit.placeId)
+            if (remainingVisits == 0) {
+                placeDao.deletePlaceById(visit.placeId)
+            }
+        }
+    }
+
+    suspend fun clearAllUserData(ownerId: String) {
+        mediaLinkDao.deleteMediaLinksByOwner(ownerId)
+        visitDao.deleteVisitsByOwner(ownerId)
+        tripDao.deleteTripsByOwner(ownerId)
+        placeDao.deletePlacesByOwner(ownerId)
     }
 
     suspend fun addMediaLink(link: MediaLinkEntity) {
@@ -131,21 +193,20 @@ class TempleRepository(
         )
     }
 
-    suspend fun seedSampleTempleVisits() {
+    suspend fun seedSampleTempleVisits(ownerId: String) {
         ensureDefaultCategories()
 
         // 1. Brihadeeswarar Temple, Thanjavur (Visited)
-        val place1 = PlaceEntity(
-            id = "place_thanjavur",
+        val place1 = getOrCreatePlace(
+            ownerId = ownerId,
             name = "Brihadeeswarar Temple",
             latitude = 10.7828,
             longitude = 79.1318,
             source = "manual"
         )
-        placeDao.insertPlace(place1)
 
         val visit1 = VisitEntity(
-            id = "visit_thanjavur",
+            id = "visit_thanjavur_${UUID.randomUUID().toString().take(6)}",
             placeId = place1.id,
             startDate = System.currentTimeMillis() - 86400000L * 18,
             endDate = System.currentTimeMillis() - 86400000L * 17,
@@ -155,34 +216,35 @@ class TempleRepository(
             state = VisitState.VISITED,
             deity = "Lord Shiva (Peruvudaiyar)",
             architecture = "Dravidian Chola Granite",
-            prayers = "Peace, health, and family prosperity"
+            prayers = "Peace, health, and family prosperity",
+            ownerId = ownerId
         )
         visitDao.insertVisit(visit1)
 
         val media1 = MediaLinkEntity(
-            id = "media_thanjavur_1",
+            id = "media_thanjavur_${UUID.randomUUID().toString().take(6)}",
             visitId = visit1.id,
             type = MediaLinkType.GALLERY,
             externalId = "content://media/external/images/media/1001",
             dateTaken = visit1.startDate,
             hasGps = true,
             latitude = 10.7828,
-            longitude = 79.1318
+            longitude = 79.1318,
+            ownerId = ownerId
         )
         mediaLinkDao.insertMediaLink(media1)
 
         // 2. Meenakshi Amman Temple, Madurai (Visited)
-        val place2 = PlaceEntity(
-            id = "place_madurai",
+        val place2 = getOrCreatePlace(
+            ownerId = ownerId,
             name = "Meenakshi Amman Temple",
             latitude = 9.9195,
             longitude = 78.1193,
             source = "manual"
         )
-        placeDao.insertPlace(place2)
 
         val visit2 = VisitEntity(
-            id = "visit_madurai",
+            id = "visit_madurai_${UUID.randomUUID().toString().take(6)}",
             placeId = place2.id,
             startDate = System.currentTimeMillis() - 86400000L * 15,
             notes = "Incredible thousand-pillar hall and multi-tiered towering gopurams filled with vibrant sculptured deities. Famous jigarthanda nearby.",
@@ -191,22 +253,22 @@ class TempleRepository(
             state = VisitState.VISITED,
             deity = "Goddess Meenakshi & Lord Sundareswarar",
             architecture = "Dravidian Nayaka",
-            prayers = "Wisdom, inner clarity, and success"
+            prayers = "Wisdom, inner clarity, and success",
+            ownerId = ownerId
         )
         visitDao.insertVisit(visit2)
 
         // 3. Kedarnath Temple, Himalayas (Wishlist)
-        val place3 = PlaceEntity(
-            id = "place_kedarnath",
+        val place3 = getOrCreatePlace(
+            ownerId = ownerId,
             name = "Kedarnath Temple",
             latitude = 30.7352,
             longitude = 79.0669,
             source = "manual"
         )
-        placeDao.insertPlace(place3)
 
         val visit3 = VisitEntity(
-            id = "visit_kedarnath",
+            id = "visit_kedarnath_${UUID.randomUUID().toString().take(6)}",
             placeId = place3.id,
             startDate = System.currentTimeMillis() + 86400000L * 60,
             notes = "Ancient Jyotirlinga high in the Garhwal Himalayas. Planning the trek during the auspicious pilgrimage window next spring.",
@@ -215,7 +277,8 @@ class TempleRepository(
             state = VisitState.WISHLIST,
             deity = "Lord Shiva (Kedarnath Jyotirlinga)",
             architecture = "Katyuri Himalayan Stone",
-            prayers = "Spiritual fortitude and safe high-altitude pilgrimage"
+            prayers = "Spiritual fortitude and safe high-altitude pilgrimage",
+            ownerId = ownerId
         )
         visitDao.insertVisit(visit3)
     }

@@ -7,4 +7,62 @@
     <string name="continue_as_demo">Quick Test / Demo Account</string>
     <string name="auth_welcome_title">Preserve Your Sacred Path</string>
     <string name="auth_welcome_desc">Record holy temples and journeys on a 3D globe. Link memories from your gallery and Google Photos with absolute privacy.</string>
+
+    <!-- Navigation Tabs -->
+    <string name="tab_map">Map</string>
+    <string name="tab_trips">Trips</string>
+    <string name="tab_you">You</string>
+
+    <!-- Map screen strings -->
+    <string name="search_hint">Search temple or city</string>
+    <string name="center_india">Center on India</string>
+    <string name="my_location">My location</string>
+    <string name="map_layers">Map layers</string>
+    <string name="zoom_in">Zoom in</string>
+    <string name="zoom_out">Zoom out</string>
+    <string name="dropped_pin_title">Dropped Pin</string>
+    <string name="log_visit_here">Log Visit Here</string>
+    <string name="view_visit_detail">View Details</string>
+
+    <!-- Trips screen strings -->
+    <string name="trips_title">Trips</string>
+    <string name="filter_all">All</string>
+    <string name="filter_wishlist">Wishlist</string>
+    <string name="add_visit">Add Visit</string>
+    <string name="new_trip">New Trip</string>
+    <string name="no_visits_found">No visits found</string>
+    <string name="no_wishlist_found">No wishlist items</string>
+    <string name="empty_trips_hint">Log visits or create trips</string>
+    <string name="view_photos_hint">View photos &amp; details</string>
+    <string name="trips_group_title">Pilgrimages</string>
+
+    <!-- You / Profile screen strings -->
+    <string name="profile_title">You</string>
+    <string name="stat_visited">Visited</string>
+    <string name="stat_wishlist">Wishlist</string>
+    <string name="stat_photos">Photos</string>
+    <string name="stat_places">Places</string>
+    <string name="theme_setting">Appearance</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+    <string name="theme_system">System</string>
+    <string name="backup_section">Local Backup</string>
+    <string name="save_backup_now">Save Backup Now</string>
+    <string name="export_json">Export JSON</string>
+    <string name="import_json">Import JSON</string>
+    <string name="seed_sample_data">Seed Temples</string>
+    <string name="reset_database">Reset Data</string>
+    <string name="privacy_title">Zero-Copy Privacy</string>
+    <string name="privacy_desc">Photos stay on your device</string>
+    <string name="debug_about">About (Debug)</string>
+    <string name="copy_sha1">Copy SHA-1</string>
+
+    <!-- Dialogs & Actions -->
+    <string name="cancel">Cancel</string>
+    <string name="confirm">Confirm</string>
+    <string name="save">Save</string>
+    <string name="delete">Delete</string>
+    <string name="edit">Edit</string>
+    <string name="sign_out_confirm_title">Sign Out?</string>
+    <string name="sign_out_confirm_msg">Local data remains on device.</string>
 </resources>

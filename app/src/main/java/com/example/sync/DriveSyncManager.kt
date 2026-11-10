@@ -49,23 +49,23 @@ class DriveSyncManager(
         return "Backup saved ${sdf.format(Date(lastSync))}"
     }
 
-    suspend fun syncOnceOnAppLaunch(userEmail: String?): Boolean {
+    suspend fun syncOnceOnAppLaunch(userEmail: String?, ownerId: String = ""): Boolean {
         if (hasSyncedThisSession) {
             Log.d(TAG, "Already backed up during this app session, skipping duplicate run.")
             return true
         }
-        return performSync(userEmail = userEmail, isAppLaunch = true)
+        return performSync(userEmail = userEmail, isAppLaunch = true, ownerId = ownerId)
     }
 
-    suspend fun performSync(userEmail: String?, isAppLaunch: Boolean = false): Boolean = withContext(Dispatchers.IO) {
+    suspend fun performSync(userEmail: String?, isAppLaunch: Boolean = false, ownerId: String = ""): Boolean = withContext(Dispatchers.IO) {
         _syncState.value = SyncState.Syncing
         try {
-            // 1. Gather all local Room records including media links and trips
-            val places = repository.allPlaces.first()
-            val visits = repository.allVisits.first()
+            // 1. Gather all local Room records for owner including media links and trips
+            val places = repository.getAllPlaces(ownerId).first()
+            val visits = repository.getAllVisits(ownerId).first()
             val categories = repository.allCategories.first()
-            val trips = repository.allTrips.first()
-            val mediaLinks = repository.allMediaLinks.first()
+            val trips = repository.getAllTrips(ownerId).first()
+            val mediaLinks = repository.getAllMediaLinks(ownerId).first()
 
             val jsonPayload = serializeBackup(
                 userEmail = userEmail ?: "unknown",
@@ -89,9 +89,9 @@ class DriveSyncManager(
 
             hasSyncedThisSession = true
             val successMsg = if (isAppLaunch) {
-                "Auto-Backup synced on launch (${visits.size} visits, ${mediaLinks.size} photos)"
+                "Local backup saved on launch (${visits.size} visits, ${mediaLinks.size} photos)"
             } else {
-                "Auto-Backup saved (${visits.size} visits, ${mediaLinks.size} photos)"
+                "Local backup saved (${visits.size} visits, ${mediaLinks.size} photos)"
             }
             _syncState.value = SyncState.Success(successMsg, now)
             Log.i(TAG, "Backup sync succeeded: $successMsg")

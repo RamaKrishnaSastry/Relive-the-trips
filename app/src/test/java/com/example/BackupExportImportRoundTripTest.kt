@@ -166,4 +166,12 @@ class BackupExportImportRoundTripTest {
         assertEquals("GOOGLE_PHOTOS", mediaObj2.getString("type"))
         assertEquals("https://photos.google.com/share/sample_album", mediaObj2.getString("externalId"))
     }
+
+    @Test
+    fun `test backup export-import round-trip via database`() {
+        // 1. Set up in-memory DB and add some data
+        // 2. Export to JSON
+        // 3. Import from JSON to a new in-memory DB
+        // 4. Verify data matches
+    }
 }

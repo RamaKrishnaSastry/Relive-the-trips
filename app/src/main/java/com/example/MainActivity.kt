@@ -91,8 +91,8 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         is AuthState.Authenticated -> {
-                            // Sync once on launch with Google Drive as requested by user
                             LaunchedEffect(state.user.id) {
+                                templeViewModel.setOwnerId(state.user.id)
                                 templeViewModel.syncWithDriveOnLaunch(state.user.email)
                             }
 

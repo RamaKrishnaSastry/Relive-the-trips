@@ -1,9 +1,12 @@
 package com.example.ui.visits
 
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,22 +21,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -43,8 +44,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -63,6 +64,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -72,16 +74,10 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.data.model.CategoryEntity
 import com.example.data.places.GeocodedSearchResult
 import com.example.data.places.NominatimGeocoder
-import com.example.data.places.TempleLookupPlace
 import com.example.data.places.TemplePlacesCatalog
-import kotlinx.coroutines.delay
-import com.example.ui.theme.AntiqueGold
-import com.example.ui.theme.MarigoldGold
-import com.example.ui.theme.SageForest
-import com.example.ui.theme.TerracottaDark
-import com.example.ui.theme.TerracottaLight
 import com.example.ui.theme.TerracottaPrimary
 import com.example.ui.theme.WishlistOrchid
+import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -110,29 +106,39 @@ fun CreateVisitSheet(
     ) -> Unit,
     onOpenAddCustomCategory: () -> Unit
 ) {
-    var searchQuery by remember { mutableStateOf("") }
+    val context = LocalContext.current
+
+    var searchQuery by remember { mutableStateOf(initialName) }
     var showSearchResults by remember { mutableStateOf(false) }
 
     var placeName by remember { mutableStateOf(initialName) }
     var latStr by remember { mutableStateOf(initialLatitude?.toString() ?: "10.7828") }
     var lngStr by remember { mutableStateOf(initialLongitude?.toString() ?: "79.1318") }
 
+    // Default to today
     var startDateMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    var hasDateRange by remember { mutableStateOf(false) }
-    var endDateMillis by remember { mutableLongStateOf(System.currentTimeMillis() + 86400000L * 2) }
-
     var showStartDatePicker by remember { mutableStateOf(false) }
-    var showEndDatePicker by remember { mutableStateOf(false) }
+
+    // Photo picker (selected photo uri)
+    var selectedPhotoUri by remember { mutableStateOf<Uri?>(null) }
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            selectedPhotoUri = uri
+            Toast.makeText(context, "Photo attached", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     val selectedCategoryIds = remember {
         mutableStateListOf<String>().apply {
-            // Default to 'Temples' category if present
             val defaultCat = categories.firstOrNull { it.id == "cat_temples" } ?: categories.firstOrNull()
             if (defaultCat != null) add(defaultCat.id)
         }
     }
 
     var isWishlist by remember { mutableStateOf(false) }
+    var showMoreDetails by remember { mutableStateOf(false) }
 
     var deity by remember { mutableStateOf("") }
     var architecture by remember { mutableStateOf("") }
@@ -149,11 +155,10 @@ fun CreateVisitSheet(
 
     LaunchedEffect(searchQuery) {
         val q = searchQuery.trim()
-        if (q.length >= 2) {
-            delay(350)
+        if (q.length >= 2 && q != placeName) {
+            delay(300)
             isSearchingOnline = true
-            val results = NominatimGeocoder.searchPlaces(q)
-            onlineResults = results
+            onlineResults = NominatimGeocoder.searchPlaces(q)
             isSearchingOnline = false
         } else {
             onlineResults = emptyList()
@@ -163,7 +168,6 @@ fun CreateVisitSheet(
 
     val dateFormatter = remember { SimpleDateFormat("MMMM d, yyyy", Locale.getDefault()) }
 
-    // Start Date Picker Dialog
     if (showStartDatePicker) {
         val datePickerState = rememberDatePickerState(initialSelectedDateMillis = startDateMillis)
         DatePickerDialog(
@@ -172,33 +176,10 @@ fun CreateVisitSheet(
                 TextButton(onClick = {
                     datePickerState.selectedDateMillis?.let { startDateMillis = it }
                     showStartDatePicker = false
-                }) {
-                    Text("OK")
-                }
+                }) { Text("OK") }
             },
             dismissButton = {
                 TextButton(onClick = { showStartDatePicker = false }) { Text("Cancel") }
-            }
-        ) {
-            DatePicker(state = datePickerState)
-        }
-    }
-
-    // End Date Picker Dialog
-    if (showEndDatePicker) {
-        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = endDateMillis)
-        DatePickerDialog(
-            onDismissRequest = { showEndDatePicker = false },
-            confirmButton = {
-                TextButton(onClick = {
-                    datePickerState.selectedDateMillis?.let { endDateMillis = it }
-                    showEndDatePicker = false
-                }) {
-                    Text("OK")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showEndDatePicker = false }) { Text("Cancel") }
             }
         ) {
             DatePicker(state = datePickerState)
@@ -212,13 +193,17 @@ fun CreateVisitSheet(
         Surface(
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
             color = MaterialTheme.colorScheme.surface,
-            modifier = Modifier.fillMaxWidth().padding(top = 36.dp)
+            tonalElevation = 16.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 40.dp)
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(20.dp)
                     .verticalScroll(rememberScrollState())
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 // Header
                 Row(
@@ -226,188 +211,91 @@ fun CreateVisitSheet(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
-                        Text(
-                            text = if (isWishlist) "Add Wishlist Temple" else "Record Sacred Visit",
-                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
-                        )
-                        Text(
-                            text = "Step 4: Manual Logging with Categories & Place Lookup",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = TerracottaPrimary
-                        )
-                    }
-                    IconButton(onClick = onDismiss) {
+                    Text(
+                        text = "New Temple Visit",
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                    )
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
                         Icon(Icons.Default.Close, contentDescription = "Close")
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Places Quick Search Bar
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = {
-                        searchQuery = it
-                        showSearchResults = it.isNotBlank()
-                    },
-                    label = { Text("Search temple by name or city (e.g. Madurai, Kedarnath)") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = MarigoldGold) },
-                    trailingIcon = {
-                        if (searchQuery.isNotBlank()) {
-                            IconButton(onClick = {
-                                searchQuery = ""
-                                showSearchResults = false
-                            }) {
-                                Icon(Icons.Default.Close, contentDescription = "Clear")
-                            }
-                        }
-                    },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = TerracottaPrimary
-                    )
-                )
-
-                // Search Suggestions Dropdown / Cards
-                val hasAnyResults = searchSuggestions.isNotEmpty() || onlineResults.isNotEmpty()
-                AnimatedVisibility(visible = showSearchResults && (hasAnyResults || isSearchingOnline)) {
-                    Column(
+                // 1. Place Search Field
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = {
+                            searchQuery = it
+                            placeName = it
+                            showSearchResults = true
+                        },
+                        label = { Text("Search Place / Temple *") },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        singleLine = true,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 8.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                            .border(1.dp, MarigoldGold.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
-                            .padding(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        if (isSearchingOnline && !hasAnyResults) {
-                            Row(
-                                modifier = Modifier.padding(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                androidx.compose.material3.CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp,
-                                    color = TerracottaPrimary
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Searching places & temples worldwide...",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
+                            .testTag("place_search_input")
+                    )
 
-                        // 1. Curated Catalog Temples
-                        searchSuggestions.take(3).forEach { temple ->
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = MaterialTheme.colorScheme.surface,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        placeName = temple.name
-                                        latStr = temple.latitude.toString()
-                                        lngStr = temple.longitude.toString()
-                                        deity = temple.deity
-                                        architecture = temple.architecture
-                                        nearbyFood = temple.nearbyFood
-                                        temple.defaultCategories.forEach { catId ->
-                                            if (!selectedCategoryIds.contains(catId)) selectedCategoryIds.add(catId)
-                                        }
-                                        searchQuery = ""
-                                        showSearchResults = false
-                                    }
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Place,
-                                        contentDescription = null,
-                                        tint = TerracottaPrimary,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = temple.name,
-                                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
-                                        )
-                                        Text(
-                                            text = "${temple.cityState} · ${temple.deity}",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
+                    if (showSearchResults && (searchSuggestions.isNotEmpty() || onlineResults.isNotEmpty())) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            tonalElevation = 8.dp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 60.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                searchSuggestions.take(3).forEach { temple ->
                                     Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = TerracottaLight
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = MaterialTheme.colorScheme.surface,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                placeName = temple.name
+                                                searchQuery = temple.name
+                                                latStr = temple.latitude.toString()
+                                                lngStr = temple.longitude.toString()
+                                                deity = temple.deity
+                                                architecture = temple.architecture
+                                                nearbyFood = temple.nearbyFood
+                                                showSearchResults = false
+                                            }
                                     ) {
-                                        Text(
-                                            text = "Catalog",
-                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                            color = TerracottaDark,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
+                                        Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Place, contentDescription = null, tint = TerracottaPrimary, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text(temple.name, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
+                                                Text("${temple.cityState} · ${temple.deity}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                        }
                                     }
                                 }
-                            }
-                        }
-
-                        // 2. Online Geocoded Places (Nominatim Open Search)
-                        onlineResults.take(3).forEach { geocoded ->
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = MaterialTheme.colorScheme.surface,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        placeName = geocoded.shortTitle.ifBlank { geocoded.displayName.take(40) }
-                                        latStr = geocoded.latitude.toString()
-                                        lngStr = geocoded.longitude.toString()
-                                        searchQuery = ""
-                                        showSearchResults = false
-                                    }
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.LocationOn,
-                                        contentDescription = null,
-                                        tint = MarigoldGold,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = geocoded.shortTitle,
-                                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
-                                        )
-                                        Text(
-                                            text = geocoded.displayName,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 1
-                                        )
-                                    }
+                                onlineResults.take(3).forEach { geocoded ->
                                     Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = AntiqueGold.copy(alpha = 0.2f)
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = MaterialTheme.colorScheme.surface,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                placeName = geocoded.shortTitle
+                                                searchQuery = geocoded.shortTitle
+                                                latStr = geocoded.latitude.toString()
+                                                lngStr = geocoded.longitude.toString()
+                                                showSearchResults = false
+                                            }
                                     ) {
-                                        Text(
-                                            text = "Map Geocode",
-                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                            color = MarigoldGold,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
+                                        Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text(geocoded.shortTitle, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
+                                                Text(geocoded.displayName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -415,269 +303,172 @@ fun CreateVisitSheet(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Place Name
-                OutlinedTextField(
-                    value = placeName,
-                    onValueChange = { placeName = it },
-                    label = { Text("Temple / Place Name *") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Coordinates Row
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = latStr,
-                        onValueChange = { latStr = it },
-                        label = { Text("Latitude") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                    OutlinedTextField(
-                        value = lngStr,
-                        onValueChange = { lngStr = it },
-                        label = { Text("Longitude") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Visited vs Wishlist Switch
+                // 2. Date Picker (Default Today)
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = if (isWishlist) WishlistOrchid.copy(alpha = 0.12f) else TerracottaLight.copy(alpha = 0.6f),
-                    border = BorderStroke(1.dp, if (isWishlist) WishlistOrchid else TerracottaPrimary),
-                    modifier = Modifier.fillMaxWidth()
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showStartDatePicker = true }
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
-                            Text(
-                                text = if (isWishlist) "★ Wishlist Pilgrimage" else "✓ Visited Temple",
-                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                color = if (isWishlist) WishlistOrchid else TerracottaDark
-                            )
-                            Text(
-                                text = if (isWishlist) "Marked as a place to visit in future" else "Marked as an accomplished visit",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                        Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = TerracottaPrimary, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Visit Date", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(dateFormatter.format(Date(startDateMillis)), style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
                         }
+                    }
+                }
 
-                        Switch(
-                            checked = isWishlist,
-                            onCheckedChange = { isWishlist = it },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = WishlistOrchid,
-                                checkedTrackColor = WishlistOrchid.copy(alpha = 0.4f)
+                // 3. Photo Picker
+                OutlinedButton(
+                    onClick = {
+                        photoPickerLauncher.launch(
+                            androidx.activity.result.PickVisualMediaRequest(
+                                androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
                             )
                         )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Date or Date Range Selector
-                Text(
-                    text = "Visit Date",
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
-                        modifier = Modifier.weight(1f).clickable { showStartDatePicker = true }
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = TerracottaPrimary, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Column {
-                                Text(text = "Start Date", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(text = dateFormatter.format(Date(startDateMillis)), style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold))
-                            }
-                        }
-                    }
-
-                    if (hasDateRange) {
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
-                            modifier = Modifier.weight(1f).clickable { showEndDatePicker = true }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = TerracottaPrimary, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Column {
-                                    Text(text = "End Date", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text(text = dateFormatter.format(Date(endDateMillis)), style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold))
-                                }
-                            }
-                        }
-                    }
+                    Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(if (selectedPhotoUri != null) "Photo Attached ✓" else "Pick from Google Photos / Gallery")
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    TextButton(onClick = { hasDateRange = !hasDateRange }) {
-                        Text(if (hasDateRange) "Use Single Day" else "+ Add Multi-Day Date Range")
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Categories Multi-Select
+                // Wishlist Toggle
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "Categories (select one or more)",
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                    Text("Save as Wishlist", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
+                    Switch(
+                        checked = isWishlist,
+                        onCheckedChange = { isWishlist = it },
+                        colors = SwitchDefaults.colors(checkedThumbColor = WishlistOrchid)
                     )
-                    TextButton(onClick = onOpenAddCustomCategory) {
-                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(2.dp))
-                        Text("New Category", style = MaterialTheme.typography.labelSmall)
-                    }
                 }
 
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+
+                // Collapsed "More details" Section
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showMoreDetails = !showMoreDetails }
                 ) {
-                    categories.forEach { cat ->
-                        val isSelected = selectedCategoryIds.contains(cat.id)
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = {
-                                if (isSelected) {
-                                    selectedCategoryIds.remove(cat.id)
-                                } else {
-                                    selectedCategoryIds.add(cat.id)
-                                }
-                            },
-                            label = { Text(cat.name) },
-                            leadingIcon = if (isSelected) {
-                                { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
-                            } else null,
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = TerracottaPrimary,
-                                selectedLabelColor = Color.White,
-                                selectedLeadingIconColor = Color.White
-                            )
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("More details (notes, categories & temple fields)", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
+                        Icon(
+                            imageVector = if (showMoreDetails) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            contentDescription = null
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
-                Spacer(modifier = Modifier.height(12.dp))
+                AnimatedVisibility(visible = showMoreDetails) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.padding(top = 4.dp)
+                    ) {
+                        // Categories
+                        Text("Categories", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            categories.forEach { cat ->
+                                val isSelected = selectedCategoryIds.contains(cat.id)
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = {
+                                        if (isSelected) selectedCategoryIds.remove(cat.id)
+                                        else selectedCategoryIds.add(cat.id)
+                                    },
+                                    label = { Text(cat.name) },
+                                    shape = RoundedCornerShape(16.dp)
+                                )
+                            }
+                        }
 
-                // Deity & Architecture
-                Text(
-                    text = "Sacred Details & Journal Notes",
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
-                )
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        // Optional Temple fields
+                        OutlinedTextField(
+                            value = deity,
+                            onValueChange = { deity = it },
+                            label = { Text("Presiding Deity (optional)") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = architecture,
+                            onValueChange = { architecture = it },
+                            label = { Text("Architecture (optional)") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = prayers,
+                            onValueChange = { prayers = it },
+                            label = { Text("Prayers / Sankalpam (optional)") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = nearbyFood,
+                            onValueChange = { nearbyFood = it },
+                            label = { Text("Nearby Food / Prasadam (optional)") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = generalNotes,
+                            onValueChange = { generalNotes = it },
+                            label = { Text("Notes (optional)") },
+                            minLines = 2,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(8.dp))
 
-                OutlinedTextField(
-                    value = deity,
-                    onValueChange = { deity = it },
-                    label = { Text("Presiding Deity (e.g. Lord Shiva, Goddess Durga)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = architecture,
-                    onValueChange = { architecture = it },
-                    label = { Text("Architecture Style (e.g. Dravidian, Chola, Nagara)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = prayers,
-                    onValueChange = { prayers = it },
-                    label = { Text("What was prayed for / Personal Sankalpam") },
-                    minLines = 2,
-                    maxLines = 3,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = nearbyFood,
-                    onValueChange = { nearbyFood = it },
-                    label = { Text("Nearby Food / Holy Prasadam / Coffee") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = generalNotes,
-                    onValueChange = { generalNotes = it },
-                    label = { Text("General Pilgrimage Notes") },
-                    minLines = 2,
-                    maxLines = 4,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                // Save Button
+                // Save Button & Snackbar Toast
                 Button(
                     onClick = {
-                        val lat = latStr.toDoubleOrNull() ?: 0.0
-                        val lng = lngStr.toDoubleOrNull() ?: 0.0
+                        val lat = latStr.toDoubleOrNull() ?: 10.7828
+                        val lng = lngStr.toDoubleOrNull() ?: 79.1318
                         val finalNotes = buildString {
                             if (generalNotes.isNotBlank()) append(generalNotes)
-                            if (nearbyFood.isNotBlank()) {
+                            if (selectedPhotoUri != null) {
                                 if (isNotEmpty()) append(" · ")
-                                append("Food: $nearbyFood")
+                                append("PhotoUri: $selectedPhotoUri")
                             }
                         }
 
                         onSaveVisit(
-                            placeName.ifBlank { "Sacred Temple" },
+                            placeName.ifBlank { "Temple" },
                             lat,
                             lng,
                             startDateMillis,
-                            if (hasDateRange) endDateMillis else null,
+                            null,
                             selectedCategoryIds.toList(),
                             deity,
                             architecture,
@@ -686,19 +477,16 @@ fun CreateVisitSheet(
                             finalNotes,
                             isWishlist
                         )
+                        Toast.makeText(context, "Visit saved successfully", Toast.LENGTH_SHORT).show()
                     },
                     enabled = placeName.isNotBlank(),
+                    shape = RoundedCornerShape(14.dp),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp)
-                        .testTag("save_visit_confirm_button"),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = TerracottaPrimary)
+                        .testTag("save_visit_confirm_button")
                 ) {
-                    Text(
-                        text = if (isWishlist) "Save Wishlist Temple" else "Save Sacred Visit to Room",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
+                    Text("Save", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
