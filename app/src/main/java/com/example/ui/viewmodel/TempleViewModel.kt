@@ -13,6 +13,7 @@ import com.example.data.model.TripEntity
 import com.example.data.model.VisitEntity
 import com.example.data.model.VisitState
 import com.example.data.repository.TempleRepository
+import com.example.data.network.ConnectivityObserver
 import com.example.sync.DriveSyncManager
 import com.example.sync.SyncState
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -27,6 +28,16 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.util.UUID
+
+import com.example.data.places.SearchRepository
+import com.example.data.places.UnifiedSearchResult
+import com.example.data.network.NetworkResult
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.distinctUntilChanged
+import com.example.data.places.DiscoveredPlace
 
 enum class ThemeMode {
     SYSTEM,
@@ -44,8 +55,104 @@ data class BackupPreview(
 class TempleViewModel(
     private val context: Context,
     private val repository: TempleRepository,
-    private val driveSyncManager: DriveSyncManager
+    private val driveSyncManager: DriveSyncManager,
+    private val connectivityObserver: ConnectivityObserver,
+    private val searchRepository: SearchRepository
 ) : ViewModel() {
+
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    private val _searchResults = MutableStateFlow<NetworkResult<List<UnifiedSearchResult>>>(NetworkResult.Empty)
+    val searchResults: StateFlow<NetworkResult<List<UnifiedSearchResult>>> = _searchResults.asStateFlow()
+
+    private val _isSearching = MutableStateFlow(false)
+    val isSearching: StateFlow<Boolean> = _isSearching.asStateFlow()
+
+    private val _mapCenter = MutableStateFlow<Pair<Double, Double>?>(null)
+
+    private val _discoveredPlaces = MutableStateFlow<List<DiscoveredPlace>>(emptyList())
+    val discoveredPlaces: StateFlow<List<DiscoveredPlace>> = _discoveredPlaces.asStateFlow()
+
+    private val _religionFilter = MutableStateFlow<String?>(null) // null = All, "hindu"
+    val religionFilter: StateFlow<String?> = _religionFilter.asStateFlow()
+
+    private val _isDiscovering = MutableStateFlow(false)
+    val isDiscovering: StateFlow<Boolean> = _isDiscovering.asStateFlow()
+
+    private val _discoveryResult = MutableStateFlow<NetworkResult<Unit>>(NetworkResult.Empty)
+    val discoveryResult: StateFlow<NetworkResult<Unit>> = _discoveryResult.asStateFlow()
+
+    fun setReligionFilter(filter: String?) {
+        _religionFilter.value = filter
+    }
+
+    fun discoverArea(south: Double, west: Double, north: Double, east: Double) {
+        viewModelScope.launch {
+            _isDiscovering.value = true
+            val result = searchRepository.searchOverpass(south, west, north, east)
+            if (result is NetworkResult.Success) {
+                _discoveredPlaces.value = result.data
+                _discoveryResult.value = NetworkResult.Success(Unit)
+            } else {
+                _discoveryResult.value = when(result) {
+                    is NetworkResult.Error -> NetworkResult.Error(result.message)
+                    is NetworkResult.Offline -> NetworkResult.Offline
+                    is NetworkResult.Empty -> NetworkResult.Empty
+                    else -> NetworkResult.Empty
+                }
+            }
+            _isDiscovering.value = false
+        }
+    }
+
+    suspend fun reverseGeocode(lat: Double, lon: Double): String {
+        return searchRepository.reverseGeocode(lat, lon)
+    }
+
+    fun clearDiscoveryResult() {
+        _discoveryResult.value = NetworkResult.Empty
+    }
+
+    @OptIn(FlowPreview::class)
+    fun updateSearchQuery(query: String, mapLat: Double? = null, mapLon: Double? = null) {
+        _searchQuery.value = query
+        if (mapLat != null && mapLon != null) {
+            _mapCenter.value = mapLat to mapLon
+        }
+    }
+
+    init {
+        viewModelScope.launch {
+            repository.ensureDefaultCategories()
+        }
+
+        viewModelScope.launch {
+            @OptIn(FlowPreview::class)
+            _searchQuery
+                .debounce(350)
+                .distinctUntilChanged()
+                .collectLatest { query ->
+                    if (query.length < 3) {
+                        _searchResults.value = NetworkResult.Empty
+                        return@collectLatest
+                    }
+                    _isSearching.value = true
+                    val center = _mapCenter.value
+                    val result = searchRepository.search(
+                        query = query,
+                        mapLat = center?.first,
+                        mapLon = center?.second,
+                        isOnline = connectivityObserver.isOnline.value,
+                        ownerId = _currentOwnerId.value
+                    )
+                    _searchResults.value = result
+                    _isSearching.value = false
+                }
+        }
+    }
+
+    val isOnline: StateFlow<Boolean> = connectivityObserver.isOnline
 
     private val prefs = context.getSharedPreferences("temple_app_prefs", Context.MODE_PRIVATE)
 
@@ -68,6 +175,26 @@ class TempleViewModel(
     fun setThemeMode(mode: ThemeMode) {
         _themeMode.value = mode
         prefs.edit().putString("theme_mode", mode.name).apply()
+    }
+
+    private val _mapLat = MutableStateFlow(prefs.getFloat("map_lat", 18.5f).toDouble())
+    val mapLat: StateFlow<Double> = _mapLat.asStateFlow()
+
+    private val _mapLon = MutableStateFlow(prefs.getFloat("map_lon", 78.5f).toDouble())
+    val mapLon: StateFlow<Double> = _mapLon.asStateFlow()
+
+    private val _zoomLevel = MutableStateFlow(prefs.getFloat("map_zoom", 5.0f))
+    val zoomLevel: StateFlow<Float> = _zoomLevel.asStateFlow()
+
+    fun saveMapState(lat: Double, lon: Double, zoom: Float) {
+        _mapLat.value = lat
+        _mapLon.value = lon
+        _zoomLevel.value = zoom
+        prefs.edit()
+            .putFloat("map_lat", lat.toFloat())
+            .putFloat("map_lon", lon.toFloat())
+            .putFloat("map_zoom", zoom)
+            .apply()
     }
 
     private val _defaultMapLayer = MutableStateFlow(
@@ -554,11 +681,13 @@ class TempleViewModel(
     class Factory(
         private val context: Context,
         private val repository: TempleRepository,
-        private val driveSyncManager: DriveSyncManager
+        private val driveSyncManager: DriveSyncManager,
+        private val connectivityObserver: ConnectivityObserver,
+        private val searchRepository: SearchRepository
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return TempleViewModel(context, repository, driveSyncManager) as T
+            return TempleViewModel(context, repository, driveSyncManager, connectivityObserver, searchRepository) as T
         }
     }
 }

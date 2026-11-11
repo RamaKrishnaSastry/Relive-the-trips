@@ -64,15 +64,19 @@ class AuthViewModel(private val repository: AuthRepository) : ViewModel() {
         }
     }
 
-    fun signInAsDemo(displayName: String = "Explorer Pilgrim") {
-        if (!BuildConfig.DEBUG) {
-            Log.w(TAG, "Demo sign-in attempted in release build.")
-            return
-        }
+    fun signInLocally(displayName: String = "Pilgrim Explorer", email: String = "local.user@templemap.app") {
         _isSigningIn.value = true
         _errorMessage.value = null
-        repository.signInAsDemo(displayName)
+        repository.signInLocally(displayName, email)
         _isSigningIn.value = false
+    }
+
+    fun signInAsDemo(displayName: String = "Explorer Pilgrim") {
+        signInLocally(displayName)
+    }
+
+    fun updateUserProfile(displayName: String, email: String, photoUrl: String?) {
+        repository.updateUserProfile(displayName, email, photoUrl)
     }
 
     fun signOut() {

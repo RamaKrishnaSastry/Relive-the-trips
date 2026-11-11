@@ -1,11 +1,14 @@
 package com.example.ui.home
 
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Luggage
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Person
@@ -59,6 +62,7 @@ object Routes {
 fun AuthenticatedHomeScreen(
     user: UserProfile,
     templeViewModel: TempleViewModel,
+    onUpdateUser: ((String, String, String?) -> Unit)? = null,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -73,8 +77,40 @@ fun AuthenticatedHomeScreen(
     val bottomBarRoutes = listOf(Routes.MAP, Routes.TRIPS, Routes.YOU)
     val showBottomBar = currentRoute in bottomBarRoutes
 
+    val isOnline by templeViewModel.isOnline.collectAsStateWithLifecycle()
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        topBar = {
+            androidx.compose.animation.AnimatedVisibility(
+                visible = !isOnline,
+                enter = androidx.compose.animation.expandVertically(),
+                exit = androidx.compose.animation.shrinkVertically()
+            ) {
+                androidx.compose.material3.Surface(
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    androidx.compose.foundation.layout.Row(
+                        modifier = Modifier.padding(8.dp).statusBarsPadding(),
+                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                    ) {
+                        androidx.compose.material3.Icon(
+                            imageVector = androidx.compose.material.icons.Icons.Default.CloudOff,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        androidx.compose.foundation.layout.Spacer(modifier = Modifier.size(8.dp))
+                        Text(
+                            "You're offline. Saved places still work.",
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    }
+                }
+            }
+        },
         bottomBar = {
             if (showBottomBar) {
                 NavigationBar(
@@ -144,7 +180,8 @@ fun AuthenticatedHomeScreen(
                     },
                     onOpenVisitDetail = { visitId ->
                         navController.navigate(Routes.visitDetail(visitId))
-                    }
+                    },
+                    templeViewModel = templeViewModel
                 )
             }
 
@@ -164,6 +201,7 @@ fun AuthenticatedHomeScreen(
                 YouTab(
                     user = user,
                     viewModel = templeViewModel,
+                    onUpdateUser = onUpdateUser,
                     onRequestSignOut = onSignOut
                 )
             }
@@ -198,6 +236,7 @@ fun AuthenticatedHomeScreen(
                     initialLongitude = lngStr?.toDoubleOrNull(),
                     initialName = name,
                     categories = categories,
+                    templeViewModel = templeViewModel,
                     onDismiss = { navController.popBackStack() },
                     onSaveVisit = { vName, lat, lng, start, end, catIds, deity, arch, prayers, food, notes, isWishlist ->
                         templeViewModel.addFullTempleVisit(

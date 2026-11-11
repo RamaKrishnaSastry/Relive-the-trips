@@ -9,6 +9,7 @@ import com.example.data.model.PlaceEntity
 import com.example.data.model.TripEntity
 import com.example.data.model.VisitEntity
 import com.example.data.repository.TempleRepository
+import com.example.data.network.NetworkResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -49,15 +50,15 @@ class DriveSyncManager(
         return "Backup saved ${sdf.format(Date(lastSync))}"
     }
 
-    suspend fun syncOnceOnAppLaunch(userEmail: String?, ownerId: String = ""): Boolean {
+    suspend fun syncOnceOnAppLaunch(userEmail: String?, ownerId: String = ""): NetworkResult<Unit> {
         if (hasSyncedThisSession) {
             Log.d(TAG, "Already backed up during this app session, skipping duplicate run.")
-            return true
+            return NetworkResult.Success(Unit)
         }
         return performSync(userEmail = userEmail, isAppLaunch = true, ownerId = ownerId)
     }
 
-    suspend fun performSync(userEmail: String?, isAppLaunch: Boolean = false, ownerId: String = ""): Boolean = withContext(Dispatchers.IO) {
+    suspend fun performSync(userEmail: String?, isAppLaunch: Boolean = false, ownerId: String = ""): NetworkResult<Unit> = withContext(Dispatchers.IO) {
         _syncState.value = SyncState.Syncing
         try {
             // 1. Gather all local Room records for owner including media links and trips
@@ -95,11 +96,15 @@ class DriveSyncManager(
             }
             _syncState.value = SyncState.Success(successMsg, now)
             Log.i(TAG, "Backup sync succeeded: $successMsg")
-            true
+            NetworkResult.Success(Unit)
+        } catch (e: java.io.IOException) {
+            Log.e(TAG, "Backup sync IO error", e)
+            _syncState.value = SyncState.Offline("Working offline with local Room DB")
+            NetworkResult.Offline
         } catch (e: Exception) {
             Log.e(TAG, "Backup sync error", e)
-            _syncState.value = SyncState.Offline("Working offline with local Room DB")
-            false
+            _syncState.value = SyncState.Error(e.message ?: "Unknown sync error")
+            NetworkResult.Error(e.message ?: "Sync failed")
         }
     }
 

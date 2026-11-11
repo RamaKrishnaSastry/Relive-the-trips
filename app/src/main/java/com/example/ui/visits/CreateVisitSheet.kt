@@ -17,12 +17,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
@@ -72,8 +74,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.data.model.CategoryEntity
-import com.example.data.places.GeocodedSearchResult
-import com.example.data.places.NominatimGeocoder
 import com.example.data.places.TemplePlacesCatalog
 import com.example.ui.theme.TerracottaPrimary
 import com.example.ui.theme.WishlistOrchid
@@ -89,6 +89,7 @@ fun CreateVisitSheet(
     initialLongitude: Double? = null,
     initialName: String = "",
     categories: List<CategoryEntity>,
+    templeViewModel: com.example.ui.viewmodel.TempleViewModel,
     onDismiss: () -> Unit,
     onSaveVisit: (
         name: String,
@@ -108,12 +109,22 @@ fun CreateVisitSheet(
 ) {
     val context = LocalContext.current
 
-    var searchQuery by remember { mutableStateOf(initialName) }
+    val searchQuery by templeViewModel.searchQuery.collectAsStateWithLifecycle()
+    val searchResultsState by templeViewModel.searchResults.collectAsStateWithLifecycle()
+    val isSearching by templeViewModel.isSearching.collectAsStateWithLifecycle()
+    val isOnline by templeViewModel.isOnline.collectAsStateWithLifecycle()
+
     var showSearchResults by remember { mutableStateOf(false) }
 
+    LaunchedEffect(initialName) {
+        if (initialName.isNotBlank()) {
+            templeViewModel.updateSearchQuery(initialName)
+        }
+    }
+
     var placeName by remember { mutableStateOf(initialName) }
-    var latStr by remember { mutableStateOf(initialLatitude?.toString() ?: "10.7828") }
-    var lngStr by remember { mutableStateOf(initialLongitude?.toString() ?: "79.1318") }
+    var latStr by remember { mutableStateOf(initialLatitude?.toString() ?: "") }
+    var lngStr by remember { mutableStateOf(initialLongitude?.toString() ?: "") }
 
     // Default to today
     var startDateMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -145,26 +156,6 @@ fun CreateVisitSheet(
     var prayers by remember { mutableStateOf("") }
     var nearbyFood by remember { mutableStateOf("") }
     var generalNotes by remember { mutableStateOf("") }
-
-    val searchSuggestions = remember(searchQuery) {
-        if (searchQuery.isNotBlank()) TemplePlacesCatalog.searchTemples(searchQuery) else emptyList()
-    }
-
-    var onlineResults by remember { mutableStateOf<List<GeocodedSearchResult>>(emptyList()) }
-    var isSearchingOnline by remember { mutableStateOf(false) }
-
-    LaunchedEffect(searchQuery) {
-        val q = searchQuery.trim()
-        if (q.length >= 2 && q != placeName) {
-            delay(300)
-            isSearchingOnline = true
-            onlineResults = NominatimGeocoder.searchPlaces(q)
-            isSearchingOnline = false
-        } else {
-            onlineResults = emptyList()
-            isSearchingOnline = false
-        }
-    }
 
     val dateFormatter = remember { SimpleDateFormat("MMMM d, yyyy", Locale.getDefault()) }
 
@@ -225,9 +216,8 @@ fun CreateVisitSheet(
                     OutlinedTextField(
                         value = searchQuery,
                         onValueChange = {
-                            searchQuery = it
-                            placeName = it
-                            showSearchResults = true
+                            templeViewModel.updateSearchQuery(it)
+                            showSearchResults = it.isNotBlank()
                         },
                         label = { Text("Search Place / Temple *") },
                         leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
@@ -237,7 +227,7 @@ fun CreateVisitSheet(
                             .testTag("place_search_input")
                     )
 
-                    if (showSearchResults && (searchSuggestions.isNotEmpty() || onlineResults.isNotEmpty())) {
+                    if (showSearchResults) {
                         Surface(
                             shape = RoundedCornerShape(12.dp),
                             color = MaterialTheme.colorScheme.surfaceVariant,
@@ -245,55 +235,71 @@ fun CreateVisitSheet(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(top = 60.dp)
+                                .heightIn(max = 300.dp)
                         ) {
-                            Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                searchSuggestions.take(3).forEach { temple ->
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = MaterialTheme.colorScheme.surface,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable {
-                                                placeName = temple.name
-                                                searchQuery = temple.name
-                                                latStr = temple.latitude.toString()
-                                                lngStr = temple.longitude.toString()
-                                                deity = temple.deity
-                                                architecture = temple.architecture
-                                                nearbyFood = temple.nearbyFood
-                                                showSearchResults = false
+                            when (val state = searchResultsState) {
+                                is com.example.data.network.NetworkResult.Success -> {
+                                    val results = state.data.take(8)
+                                    Column(modifier = Modifier.padding(8.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        val saved = results.filter { it.type == com.example.data.places.SearchResultType.SAVED }
+                                        val temples = results.filter { it.type == com.example.data.places.SearchResultType.TEMPLE }
+                                        val others = results.filter { it.type != com.example.data.places.SearchResultType.SAVED && it.type != com.example.data.places.SearchResultType.TEMPLE }
+
+                                        if (saved.isNotEmpty()) {
+                                            SearchSectionLabel("Saved")
+                                            for (item in saved) {
+                                                SearchResultRow(item) {
+                                                    placeName = item.name
+                                                    templeViewModel.updateSearchQuery(item.name)
+                                                    latStr = item.latitude.toString()
+                                                    lngStr = item.longitude.toString()
+                                                    showSearchResults = false
+                                                }
                                             }
-                                    ) {
-                                        Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(Icons.Default.Place, contentDescription = null, tint = TerracottaPrimary, modifier = Modifier.size(18.dp))
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Column {
-                                                Text(temple.name, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
-                                                Text("${temple.cityState} · ${temple.deity}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                        if (temples.isNotEmpty()) {
+                                            SearchSectionLabel("Temples")
+                                            for (item in temples) {
+                                                SearchResultRow(item) {
+                                                    placeName = item.name
+                                                    templeViewModel.updateSearchQuery(item.name)
+                                                    latStr = item.latitude.toString()
+                                                    lngStr = item.longitude.toString()
+                                                    if (item.cityState != null) nearbyFood = "Try food in ${item.cityState}"
+                                                    showSearchResults = false
+                                                }
+                                            }
+                                        }
+                                        if (others.isNotEmpty()) {
+                                            SearchSectionLabel("More places")
+                                            for (item in others) {
+                                                SearchResultRow(item) {
+                                                    placeName = item.name
+                                                    templeViewModel.updateSearchQuery(item.name)
+                                                    latStr = item.latitude.toString()
+                                                    lngStr = item.longitude.toString()
+                                                    showSearchResults = false
+                                                }
                                             }
                                         }
                                     }
                                 }
-                                onlineResults.take(3).forEach { geocoded ->
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = MaterialTheme.colorScheme.surface,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable {
-                                                placeName = geocoded.shortTitle
-                                                searchQuery = geocoded.shortTitle
-                                                latStr = geocoded.latitude.toString()
-                                                lngStr = geocoded.longitude.toString()
-                                                showSearchResults = false
-                                            }
-                                    ) {
-                                        Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Column {
-                                                Text(geocoded.shortTitle, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
-                                                Text(geocoded.displayName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                                is com.example.data.network.NetworkResult.Empty -> {
+                                    Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("No places found", style = MaterialTheme.typography.bodyMedium)
+                                        Text("Try a different name or location", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                                is com.example.data.network.NetworkResult.Offline -> {
+                                    Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("You're offline, showing saved places only", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                                    }
+                                }
+                                else -> {
+                                    if (isSearching) {
+                                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            repeat(3) {
+                                                Box(modifier = Modifier.fillMaxWidth().height(40.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)))
                                             }
                                         }
                                     }
@@ -453,8 +459,8 @@ fun CreateVisitSheet(
                 // Save Button & Snackbar Toast
                 Button(
                     onClick = {
-                        val lat = latStr.toDoubleOrNull() ?: 10.7828
-                        val lng = lngStr.toDoubleOrNull() ?: 79.1318
+                        val lat = latStr.toDoubleOrNull() ?: return@Button
+                        val lng = lngStr.toDoubleOrNull() ?: return@Button
                         val finalNotes = buildString {
                             if (generalNotes.isNotBlank()) append(generalNotes)
                             if (selectedPhotoUri != null) {
@@ -479,7 +485,7 @@ fun CreateVisitSheet(
                         )
                         Toast.makeText(context, "Visit saved successfully", Toast.LENGTH_SHORT).show()
                     },
-                    enabled = placeName.isNotBlank(),
+                    enabled = placeName.isNotBlank() && latStr.toDoubleOrNull() != null && lngStr.toDoubleOrNull() != null,
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -490,6 +496,60 @@ fun CreateVisitSheet(
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchSectionLabel(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+    )
+}
+
+@Composable
+private fun SearchResultRow(result: com.example.data.places.UnifiedSearchResult, onClick: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = Color.Transparent,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val icon = when (result.type) {
+                com.example.data.places.SearchResultType.SAVED -> Icons.Default.Place
+                com.example.data.places.SearchResultType.TEMPLE -> Icons.Default.Place
+                com.example.data.places.SearchResultType.CITY -> Icons.Default.Place
+                else -> Icons.Default.Place
+            }
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (result.type == com.example.data.places.SearchResultType.SAVED) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+                Text(
+                    text = result.name,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                )
+                val locationStr = listOfNotNull(result.cityState, result.country).joinToString(", ")
+                if (locationStr.isNotBlank()) {
+                    Text(
+                        text = locationStr,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }

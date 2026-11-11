@@ -34,12 +34,15 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -75,6 +78,7 @@ import java.util.Locale
 fun YouTab(
     user: UserProfile,
     viewModel: TempleViewModel,
+    onUpdateUser: ((String, String, String?) -> Unit)? = null,
     onRequestSignOut: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -89,6 +93,7 @@ fun YouTab(
     var showClearDataDialog by remember { mutableStateOf(false) }
     var pendingImportPreview by remember { mutableStateOf<BackupPreview?>(null) }
     var showDebugDialog by remember { mutableStateOf(false) }
+    var showEditProfileDialog by remember { mutableStateOf(false) }
 
     val exportDocLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
@@ -109,6 +114,55 @@ fun YouTab(
             if (result.isSuccess) pendingImportPreview = result.getOrNull()
             else Toast.makeText(context, "Invalid backup", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    if (showEditProfileDialog) {
+        var editName by remember { mutableStateOf(user.displayName) }
+        var editEmail by remember { mutableStateOf(user.email) }
+        var editPhotoUrl by remember { mutableStateOf(user.photoUrl ?: "") }
+
+        AlertDialog(
+            onDismissRequest = { showEditProfileDialog = false },
+            title = { Text("Edit Profile Details", fontWeight = FontWeight.SemiBold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = editName,
+                        onValueChange = { editName = it },
+                        label = { Text("Display Name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = editEmail,
+                        onValueChange = { editEmail = it },
+                        label = { Text("Email") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = editPhotoUrl,
+                        onValueChange = { editPhotoUrl = it },
+                        label = { Text("Avatar Photo URL (Optional)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onUpdateUser?.invoke(editName, editEmail, editPhotoUrl.ifBlank { null })
+                        showEditProfileDialog = false
+                        Toast.makeText(context, "Profile updated", Toast.LENGTH_SHORT).show()
+                    },
+                    shape = RoundedCornerShape(12.dp)
+                ) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditProfileDialog = false }) { Text("Cancel") }
+            }
+        )
     }
 
     pendingImportPreview?.let { preview ->
@@ -190,7 +244,61 @@ fun YouTab(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // User Profile Card: Avatar, Name
+        // Header with Account Chip on the right
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "You",
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+            )
+
+            // Account Chip (Avatar + First Name + Sign Out)
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
+                modifier = Modifier.clickable(onClick = onRequestSignOut)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    if (!user.photoUrl.isNullOrBlank()) {
+                        AsyncImage(
+                            model = user.photoUrl,
+                            contentDescription = "Avatar",
+                            modifier = Modifier.size(24.dp).clip(CircleShape)
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier.size(24.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = user.displayName.take(1).uppercase(),
+                                style = MaterialTheme.typography.labelSmall.copy(color = Color.White, fontWeight = FontWeight.Bold)
+                            )
+                        }
+                    }
+                    Text(
+                        text = user.displayName.substringBefore(" "),
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
+                    )
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ExitToApp,
+                        contentDescription = "Sign out",
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        // User Profile Card: Avatar, Name, and Edit Profile action
         Surface(
             shape = RoundedCornerShape(16.dp),
             color = MaterialTheme.colorScheme.surface,
@@ -241,6 +349,14 @@ fun YouTab(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+
+                IconButton(onClick = { showEditProfileDialog = true }) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "Edit Profile",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
         }
 
@@ -283,7 +399,7 @@ fun YouTab(
                     title = "Map style",
                     onClick = {
                         val curr = viewModel.defaultMapLayer.value
-                        val next = if (curr == "SATELLITE") "STREET" else if (curr == "STREET") "DARK" else "SATELLITE"
+                        val next = if (curr == "SATELLITE") "STREET" else "SATELLITE"
                         viewModel.setDefaultMapLayer(next)
                         Toast.makeText(context, "Map style: $next", Toast.LENGTH_SHORT).show()
                     }
@@ -301,7 +417,7 @@ fun YouTab(
 
                 // 4. Export
                 SettingsRow(
-                    icon = Icons.Default.Download,
+                    icon = Icons.Default.Upload,
                     title = "Export",
                     onClick = {
                         val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
@@ -311,7 +427,7 @@ fun YouTab(
 
                 // 5. Import
                 SettingsRow(
-                    icon = Icons.Default.Upload,
+                    icon = Icons.Default.Download,
                     title = "Import",
                     onClick = {
                         openDocLauncher.launch(arrayOf("application/json"))

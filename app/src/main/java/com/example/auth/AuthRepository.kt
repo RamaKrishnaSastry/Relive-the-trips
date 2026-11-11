@@ -162,18 +162,16 @@ class AuthRepository(private val context: Context) {
         }
     }
 
-    fun signInAsDemo(
-        displayName: String = "Explorer Pilgrim"
-    ): UserProfile? {
-        if (!BuildConfig.DEBUG) {
-            Log.w(TAG, "Demo sign-in rejected: only permitted in debug builds.")
-            return null
-        }
+    fun signInLocally(
+        displayName: String = "Pilgrim Explorer",
+        email: String = "local.user@templemap.app"
+    ): UserProfile {
+        val userId = prefs.getString(KEY_USER_ID, null) ?: "local_${UUID.randomUUID().toString().take(8)}"
         val user = UserProfile(
-            id = "demo_${UUID.randomUUID().toString().take(8)}",
-            email = "demo.pilgrim@templemap.app",
-            displayName = displayName,
-            photoUrl = null,
+            id = userId,
+            email = email,
+            displayName = displayName.ifBlank { "Pilgrim Explorer" },
+            photoUrl = prefs.getString(KEY_USER_PHOTO, null),
             idToken = null,
             signedInAtMillis = System.currentTimeMillis(),
             isDemoSession = true
@@ -181,6 +179,24 @@ class AuthRepository(private val context: Context) {
         saveSession(user)
         _authState.value = AuthState.Authenticated(user)
         return user
+    }
+
+    fun signInAsDemo(
+        displayName: String = "Explorer Pilgrim"
+    ): UserProfile? {
+        return signInLocally(displayName)
+    }
+
+    fun updateUserProfile(displayName: String, email: String, photoUrl: String?): UserProfile? {
+        val current = (_authState.value as? AuthState.Authenticated)?.user ?: return null
+        val updated = current.copy(
+            displayName = displayName.ifBlank { current.displayName },
+            email = email.ifBlank { current.email },
+            photoUrl = if (photoUrl?.isBlank() == true) null else photoUrl
+        )
+        saveSession(updated)
+        _authState.value = AuthState.Authenticated(updated)
+        return updated
     }
 
     fun signOut() {

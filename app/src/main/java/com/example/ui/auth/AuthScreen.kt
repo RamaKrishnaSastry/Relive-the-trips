@@ -21,8 +21,10 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -215,19 +217,22 @@ fun AuthScreen(
                     }
                 }
 
-                // Demo sign-in: ONLY in debug builds
-                if (BuildConfig.DEBUG) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    TextButton(
-                        onClick = { viewModel.signInAsDemo() },
-                        modifier = Modifier.testTag("demo_sign_in_button")
-                    ) {
-                        Text(
-                            text = "Continue as Demo (Debug only)",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                // Proceed locally option for offline or guest access
+                Spacer(modifier = Modifier.height(14.dp))
+                OutlinedButton(
+                    onClick = { viewModel.signInLocally() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                        .testTag("proceed_locally_button"),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
+                ) {
+                    Text(
+                        text = "Proceed locally",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
                 }
             }
         }

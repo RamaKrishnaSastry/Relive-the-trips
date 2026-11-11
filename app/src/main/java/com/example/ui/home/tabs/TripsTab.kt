@@ -40,7 +40,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.ui.text.style.TextOverflow
+import com.example.data.model.PlaceEntity
 import com.example.data.model.TripEntity
+import com.example.data.model.VisitEntity
 import com.example.data.model.VisitState
 import com.example.ui.viewmodel.TempleViewModel
 import java.text.SimpleDateFormat
@@ -55,7 +61,10 @@ fun TripsTab(
     modifier: Modifier = Modifier
 ) {
     val visits by viewModel.allVisits.collectAsStateWithLifecycle()
+    val places by viewModel.allPlaces.collectAsStateWithLifecycle()
     val trips by viewModel.allTrips.collectAsStateWithLifecycle()
+
+    val placesMap = remember(places) { places.associateBy { it.id } }
 
     var selectedTabIndex by remember { mutableIntStateOf(0) } // 0 = Visited, 1 = Wishlist
     var showCreateTripDialog by remember { mutableStateOf(false) }
@@ -153,7 +162,7 @@ fun TripsTab(
             }
         }
 
-        // Vertical List of Trip Cards or Empty State
+        // Vertical List of Visit Cards or Empty State
         if (trips.isEmpty() && filteredVisits.isEmpty()) {
             Column(
                 modifier = Modifier
@@ -180,7 +189,7 @@ fun TripsTab(
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = "No trips recorded yet",
+                            text = if (selectedTabIndex == 0) "No visited places recorded yet" else "No wishlist places recorded yet",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
                         )
                         Spacer(modifier = Modifier.height(16.dp))
@@ -189,7 +198,7 @@ fun TripsTab(
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.height(48.dp)
                         ) {
-                            Text("Add Visit")
+                            Text("Add Place")
                         }
                     }
                 }
@@ -199,8 +208,28 @@ fun TripsTab(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(trips, key = { it.id }) { trip ->
-                    TripCardItem(trip = trip)
+                if (filteredVisits.isNotEmpty()) {
+                    items(filteredVisits, key = { it.id }) { visit ->
+                        val place = placesMap[visit.placeId]
+                        VisitCardItem(
+                            visit = visit,
+                            place = place,
+                            onClick = { onOpenVisitDetail(visit.id) }
+                        )
+                    }
+                }
+
+                if (trips.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = "Trips",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                        )
+                    }
+                    items(trips, key = { it.id }) { trip ->
+                        TripCardItem(trip = trip)
+                    }
                 }
             }
         }
@@ -263,6 +292,78 @@ private fun TripCardItem(
                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                     color = MaterialTheme.colorScheme.primary
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun VisitCardItem(
+    visit: VisitEntity,
+    place: PlaceEntity?,
+    onClick: () -> Unit
+) {
+    val dateFormatter = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
+    val dateStr = dateFormatter.format(Date(visit.startDate))
+
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = if (visit.state == VisitState.WISHLIST) Icons.Default.Star else Icons.Default.Place,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Text(
+                        text = place?.name ?: "Temple Place",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Text(
+                    text = dateStr,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            if (!visit.deity.isNullOrBlank() || !visit.notes.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                if (!visit.deity.isNullOrBlank()) {
+                    Text(
+                        text = "Deity: ${visit.deity}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                }
+                if (!visit.notes.isNullOrBlank()) {
+                    Text(
+                        text = visit.notes,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
             }
         }
     }

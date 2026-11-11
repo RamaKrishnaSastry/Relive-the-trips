@@ -25,6 +25,7 @@ import com.example.auth.AuthState
 import com.example.auth.AuthViewModel
 import com.example.data.db.TempleMapDatabase
 import com.example.data.repository.TempleRepository
+import com.example.data.network.ConnectivityObserver
 import com.example.sync.DriveSyncManager
 import com.example.ui.auth.AuthScreen
 import com.example.ui.home.AuthenticatedHomeScreen
@@ -57,8 +58,22 @@ class MainActivity : ComponentActivity() {
         DriveSyncManager(applicationContext, templeRepository)
     }
 
+    private val connectivityObserver by lazy {
+        ConnectivityObserver(applicationContext)
+    }
+
+    private val searchRepository by lazy {
+        com.example.data.places.SearchRepository(applicationContext, templeRepository)
+    }
+
     private val templeViewModel: TempleViewModel by viewModels {
-        TempleViewModel.Factory(applicationContext, templeRepository, driveSyncManager)
+        TempleViewModel.Factory(
+            applicationContext,
+            templeRepository,
+            driveSyncManager,
+            connectivityObserver,
+            searchRepository
+        )
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -99,6 +114,7 @@ class MainActivity : ComponentActivity() {
                             AuthenticatedHomeScreen(
                                 user = state.user,
                                 templeViewModel = templeViewModel,
+                                onUpdateUser = { name, email, photo -> authViewModel.updateUserProfile(name, email, photo) },
                                 onSignOut = { authViewModel.signOut() }
                             )
                         }
